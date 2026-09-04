@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "answer", "files", "commands", "notes"],
+  "properties": {
+    "summary": {"type": "string"},
+    "answer": {"type": "string"},
+    "files": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "content", "reason"],
+        "properties": {
+          "path": {"type": "string"},
+          "content": {"type": "string"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "reason"],
+        "properties": {
+          "command": {"type": "string"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "notes": {"type": "array", "maxItems": 12, "items": {"type": "string"}}
+  }
+}

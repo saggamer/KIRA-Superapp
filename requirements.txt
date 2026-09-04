@@ -1,0 +1,26 @@
+pywebview>=5.0
+mlx>=0.26.0
+mlx-lm>=0.25.0
+tokenizers>=0.19.0
+huggingface-hub>=0.27.0
+fpdf2>=2.7.9
+python-pptx>=0.6.23
+python-docx>=1.1.2
+openpyxl>=3.1.5,<4
+PyMuPDF>=1.24.0
+duckduckgo-search>=6.0.0
+httpx>=0.27.0
+beautifulsoup4>=4.12.3
+Pillow>=10.0.0
+numpy>=1.26.0
+sounddevice>=0.4.6
+kokoro-onnx>=0.4.0
+onnxruntime>=1.18.0
+
+# Lightweight STT fallback: MLX is preferred on Apple Silicon; faster-whisper is portable.
+# The Apache-2.0 Qwen3-ASR 0.6B primary stack is installed by scripts/setup_live_voice.py.
+mlx-whisper>=0.4.2; sys_platform == "darwin" and platform_machine == "arm64"
+faster-whisper>=1.1.0
+
+# TEN VAD is optional at runtime; listen.py uses adaptive RMS when unavailable.
+# Official install: pip install -U git+https://github.com/TEN-framework/ten-vad.git

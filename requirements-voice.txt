@@ -1,0 +1,11 @@
+# Full local KIRA Live stack. Install separately so the main UI remains quick to boot.
+sounddevice>=0.4.6
+kokoro-onnx>=0.4.0
+onnxruntime>=1.18.0
+huggingface-hub>=0.27.0
+qwen-asr
+ten-vad @ git+https://github.com/TEN-framework/ten-vad.git
+
+# Apple-optimized and portable fallbacks.
+mlx-whisper>=0.4.2; sys_platform == "darwin" and platform_machine == "arm64"
+faster-whisper>=1.1.0

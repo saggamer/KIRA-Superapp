@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KIRA OS - KIRA Agentic Environment</title>
+    <meta name="description" content="KIRA OS is a prototype local agentic compute environment powered by Orchestrator V1 for desktop automation, artifact generation, web workflows, IDE bridges, and permission-aware agent execution.">
+    <style>
+        :root {
+            --bg: #030405;
+            --panel: rgba(7, 9, 12, 0.66);
+            --panel-strong: rgba(11, 13, 17, 0.86);
+            --line: rgba(255, 255, 255, 0.14);
+            --line-strong: rgba(255, 255, 255, 0.26);
+            --text: #f7f7f4;
+            --muted: #b8bdc5;
+            --soft: #858b96;
+            --warm: #f2c9a8;
+            --white: #ffffff;
+            --blue: #a8caff;
+            --cyan: #8fe7ff;
+            --ok: #87f4cf;
+            --shadow: 0 28px 90px rgba(0, 0, 0, 0.5);
+        }
+
+        * { box-sizing: border-box; }
+        html { background: var(--bg); scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            overflow-x: hidden;
+            color: var(--text);
+            background: var(--bg);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+            letter-spacing: 0;
+        }
+
+        .cosmic-bg {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(90deg, rgba(0, 0, 0, 0.44) 0%, rgba(0, 0, 0, 0.02) 48%, rgba(0, 0, 0, 0.42) 100%),
+                linear-gradient(0deg, rgba(0, 0, 0, 0.46) 0%, rgba(0, 0, 0, 0.02) 48%, rgba(0, 0, 0, 0.24) 100%),
+                url("assets/interstellar_blackhole.jpg");
+            background-size: cover;
+            background-position: center 46%;
+            background-attachment: fixed;
+            transform: scale(var(--scene-scale, 1));
+            filter: saturate(1.2) contrast(1.08) brightness(1.16);
+            transition: transform 700ms cubic-bezier(.2,.8,.2,1), filter 700ms ease;
+        }
+
+        .cosmic-bg::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(circle at 50% 43%, rgba(255, 234, 211, 0.3), transparent 24%),
+                radial-gradient(circle at 50% 49%, rgba(0, 0, 0, 0) 0 30%, rgba(0, 0, 0, 0.08) 56%, rgba(0, 0, 0, 0.48) 100%);
+            mix-blend-mode: normal;
+            opacity: var(--halo-opacity, 0.46);
+        }
+
+        a { color: inherit; text-decoration: none; }
+        button, input { font: inherit; }
+        button { border: 0; color: inherit; cursor: pointer; }
+
+        .grain {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            opacity: 0.08;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+            background-size: 80px 80px;
+            mask-image: radial-gradient(circle at 50% 45%, black, transparent 76%);
+        }
+
+        .shell {
+            width: min(1200px, calc(100% - 40px));
+            margin: 0 auto;
+        }
+
+        header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 20;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(3, 4, 5, 0.52);
+            backdrop-filter: blur(22px);
+        }
+
+        .nav {
+            height: 76px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 13px;
+            min-width: 0;
+        }
+
+        .brand img {
+            width: 46px;
+            height: 46px;
+            object-fit: cover;
+            border-radius: 13px;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            box-shadow: 0 0 34px rgba(143, 231, 255, 0.22);
+        }
+
+        .brand strong {
+            font-size: 19px;
+            letter-spacing: 0.01em;
+        }
+
+        nav {
+            display: flex;
+            gap: 22px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        nav a:hover { color: var(--white); }
+
+        .button {
+            min-height: 42px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            padding: 0 18px;
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--line);
+            transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+        }
+
+        .button:hover {
+            transform: translateY(-1px);
+            border-color: var(--line-strong);
+            background: rgba(255, 255, 255, 0.13);
+        }
+
+        .button.primary {
+            color: #090b0f;
+            background: #ffffff;
+            border-color: rgba(255, 255, 255, 0.72);
+        }
+
+        main { position: relative; z-index: 2; }
+
+        .slides {
+            min-height: 100vh;
+            display: grid;
+            align-items: center;
+            padding: 114px 0 52px;
+        }
+
+        .slide-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 420px;
+            gap: 44px;
+            align-items: center;
+        }
+
+        .slide-copy {
+            min-height: 600px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 22px;
+        }
+
+        .kicker {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-size: 12px;
+        }
+
+        .kicker::before {
+            content: "";
+            width: 58px;
+            height: 1px;
+            background: linear-gradient(90deg, var(--warm), transparent);
+        }
+
+        h1 {
+            max-width: 900px;
+            margin: 0;
+            font-size: clamp(48px, 8.2vw, 112px);
+            line-height: 0.91;
+            letter-spacing: 0;
+            text-wrap: balance;
+        }
+
+        .lead {
+            max-width: 790px;
+            min-height: 92px;
+            margin: 0;
+            color: #e2e5ec;
+            font-size: clamp(18px, 2vw, 23px);
+            line-height: 1.5;
+        }
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            min-height: 38px;
+        }
+
+        .chips span {
+            display: inline-flex;
+            align-items: center;
+            min-height: 34px;
+            padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(255, 255, 255, 0.075);
+            color: #edf1f7;
+            backdrop-filter: blur(14px);
+            font-size: 13px;
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .controls button {
+            min-height: 42px;
+            border-radius: 999px;
+            padding: 0 16px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .dots {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.25);
+            transition: width 180ms ease, background 180ms ease;
+        }
+
+        .dot.active {
+            width: 30px;
+            border-radius: 999px;
+            background: var(--white);
+        }
+
+        .mission-card {
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 10px;
+            background: var(--panel);
+            backdrop-filter: blur(26px);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .mission-top {
+            min-height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .traffic {
+            display: flex;
+            gap: 7px;
+        }
+
+        .traffic span {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.24);
+        }
+
+        .mission-body {
+            padding: 22px;
+            display: grid;
+            gap: 13px;
+        }
+
+        .readout {
+            display: grid;
+            grid-template-columns: 122px 1fr;
+            gap: 14px;
+            padding-bottom: 13px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+            font-size: 14px;
+        }
+
+        .readout:last-child { border-bottom: 0; padding-bottom: 0; }
+        .readout span:first-child { color: var(--soft); }
+        .readout span:last-child { color: var(--text); }
+
+        .console {
+            margin-top: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            padding: 14px;
+            color: #dce9ff;
+            background: rgba(255, 255, 255, 0.04);
+            font-family: "SF Mono", ui-monospace, Menlo, monospace;
+            font-size: 12px;
+            line-height: 1.55;
+        }
+
+        .release-panel, .benchmark-panel, .author-panel {
+            display: none;
+            max-width: 900px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 10px;
+            padding: 18px;
+            background: rgba(7, 9, 12, 0.74);
+            backdrop-filter: blur(24px);
+        }
+
+        .release-panel.visible, .benchmark-panel.visible, .author-panel.visible { display: block; }
+
+        .link-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .link-card {
+            min-height: 108px;
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            border-radius: 8px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.055);
+        }
+
+        .link-card strong { display: block; margin-bottom: 8px; }
+        .link-card p { margin: 0 0 12px; color: var(--muted); line-height: 1.45; font-size: 14px; }
+
+        .repo-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .repo-row input {
+            flex: 1 1 330px;
+            min-height: 46px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 8px;
+            padding: 0 14px;
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.07);
+        }
+
+        .repo-row a {
+            min-height: 46px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            padding: 0 14px;
+            color: #090b0f;
+            background: #ffffff;
+        }
+
+        .benchmark-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .bench-row {
+            display: grid;
+            grid-template-columns: 190px 1fr 88px;
+            gap: 14px;
+            align-items: center;
+        }
+
+        .bench-name small {
+            display: block;
+            color: var(--soft);
+            margin-top: 3px;
+            line-height: 1.35;
+        }
+
+        .bar {
+            height: 12px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .bar span {
+            display: block;
+            width: var(--score);
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--warm), #ffffff, var(--cyan));
+        }
+
+        .bench-score {
+            text-align: right;
+            color: var(--text);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .bench-note {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.5;
+            margin: 14px 0 0;
+        }
+
+        section {
+            position: relative;
+            z-index: 2;
+            padding: 90px 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(3, 4, 5, 0.68);
+            backdrop-filter: blur(20px);
+        }
+
+        .section-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 28px;
+            align-items: end;
+            margin-bottom: 28px;
+        }
+
+        h2 {
+            margin: 0;
+            max-width: 760px;
+            font-size: clamp(32px, 5vw, 58px);
+            line-height: 1;
+        }
+
+        .section-head p {
+            max-width: 430px;
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.55;
+        }
+
+        .capability-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .tile {
+            min-height: 172px;
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            border-radius: 8px;
+            padding: 22px;
+            background: rgba(255, 255, 255, 0.055);
+        }
+
+        .tile code {
+            display: inline-flex;
+            margin-bottom: 16px;
+            color: var(--warm);
+            font-family: "SF Mono", ui-monospace, Menlo, monospace;
+            font-size: 12px;
+        }
+
+        .tile h3 { margin: 0 0 10px; font-size: 18px; }
+        .tile p { margin: 0; color: var(--muted); line-height: 1.5; font-size: 14px; }
+
+        .footer {
+            padding: 32px 0;
+            color: var(--soft);
+            background: #030405;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .footer .shell {
+            display: flex;
+            justify-content: space-between;
+            gap: 18px;
+            flex-wrap: wrap;
+            font-size: 14px;
+        }
+
+        @media (max-width: 980px) {
+            nav { display: none; }
+            .slide-grid { grid-template-columns: 1fr; }
+            .mission-card { max-width: 620px; }
+            .capability-grid, .link-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 640px) {
+            .shell { width: min(100% - 28px, 1200px); }
+            .nav { height: 68px; }
+            .button.primary.nav-cta { display: none; }
+            .slides { padding-top: 92px; }
+            .slide-copy { min-height: 520px; }
+            h1 { font-size: 48px; }
+            .lead { font-size: 17px; }
+            .bench-row { grid-template-columns: 1fr; gap: 8px; }
+            .bench-score { text-align: left; }
+            .readout { grid-template-columns: 1fr; gap: 4px; }
+            section { padding: 64px 0; }
+            .section-head { display: block; }
+            .section-head p { margin-top: 14px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="cosmic-bg" aria-hidden="true"></div>
+    <div class="grain" aria-hidden="true"></div>
+
+    <header>
+        <div class="shell nav">
+            <a class="brand" href="#top" aria-label="KIRA OS home">
+                <img src="assets/kira_logo_sample4.png?v=20260606" alt="">
+                <strong>KIRA OS</strong>
+            </a>
+            <nav aria-label="Main navigation">
+                <a href="#capabilities">Capabilities</a>
+                <a href="#benchmark">Benchmark</a>
+                <a href="#release">Download</a>
+                <a href="#author">Author</a>
+            </nav>
+            <a class="button primary nav-cta" href="#release">Get Prototype</a>
+        </div>
+    </header>
+
+    <main id="top">
+        <section class="slides" aria-label="KIRA OS immersive black hole sequence">
+            <div class="shell slide-grid">
+                <div class="slide-copy">
+                    <div class="kicker" id="stage-kicker">Slide 01 / 09</div>
+                    <h1 id="stage-title">Welcome to the next era of local agentic compute.</h1>
+                    <p class="lead" id="stage-copy">KIRA OS is a prototype agentic desktop environment built around Orchestrator V1. Press Space or click to move closer to the black hole and reveal the system.</p>
+                    <div class="chips" id="stage-tags"></div>
+
+                    <div class="benchmark-panel" id="benchmark-panel">
+                        <div class="benchmark-grid" aria-label="Agentic benchmark comparison">
+                            <div class="bench-row">
+                                <div class="bench-name">KIRA OS + Orchestrator V1<small>Executable local agentic harness, model-in-loop pending</small></div>
+                                <div class="bar"><span style="--score: 75%"></span></div>
+                                <div class="bench-score">75 / 100</div>
+                            </div>
+                            <div class="bench-row">
+                                <div class="bench-name">Codex CLI + GPT-5.4<small>Harness-Bench published agent-harness result</small></div>
+                                <div class="bar"><span style="--score: 80.4%"></span></div>
+                                <div class="bench-score">80.4</div>
+                            </div>
+                            <div class="bench-row">
+                                <div class="bench-name">Hermes Agent<small>Harness-Bench aggregate harness result</small></div>
+                                <div class="bar"><span style="--score: 71.2%"></span></div>
+                                <div class="bench-score">71.2</div>
+                            </div>
+                        </div>
+                        <p class="bench-note">Professional reference: <a href="https://arxiv.org/abs/2605.27922" target="_blank" rel="noreferrer">Harness-Bench</a> evaluates 106 sandboxed workflow tasks with full agent execution traces. Published results report Codex at 80.4 using GPT-5.4 and Hermes Agent at 71.2 as an aggregate harness result. KIRA's 75/100 is from an executable local prototype harness that ran KIRA pathways for PPTX, DOCX, PDF, permission queueing, virus scan, optimisation scan, artifact indexing, and reasoning stripping. Orchestrator model-in-loop and official Harness-Bench are still pending.</p>
+                    </div>
+
+                    <div class="release-panel" id="release-panel">
+                        <div class="link-grid">
+                            <div class="link-card">
+                                <strong>Orchestrator V1</strong>
+                                <p>The agentic automation model powering KIRA OS.</p>
+                                <a class="button primary" href="https://huggingface.co/saggamer/Orchestrator_V1" target="_blank" rel="noreferrer">Open Hugging Face</a>
+                            </div>
+                            <div class="link-card">
+                                <strong>KIRA OS repository</strong>
+                                <p>The public prototype repository for the KIRA OS local agentic environment.</p>
+                                <div class="repo-row">
+                                    <a id="repo-link" href="https://github.com/saggamer/KIRA-OS" target="_blank" rel="noreferrer">Open GitHub</a>
+                                    <a id="release-link" href="https://github.com/saggamer/KIRA-OS/releases/latest" target="_blank" rel="noreferrer">Latest release</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="author-panel" id="author-panel">
+                        <div class="link-grid">
+                            <div class="link-card">
+                                <strong>Follow on X</strong>
+                                <p>Development updates, model notes, and KIRA OS prototype progress.</p>
+                                <a class="button primary" href="https://x.com/saggamer2241" target="_blank" rel="noreferrer">@saggamer2241</a>
+                            </div>
+                            <div class="link-card">
+                                <strong>Follow on Instagram</strong>
+                                <p>Visual updates, demos, and builder-side posts for KIRA OS.</p>
+                                <a class="button primary" href="https://www.instagram.com/true_gamerz_inc/" target="_blank" rel="noreferrer">true_gamerz_inc</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="controls">
+                        <button id="back-stage" type="button">Back</button>
+                        <button id="next-stage" type="button">Move closer</button>
+                        <div class="dots" id="stage-dots" aria-hidden="true"></div>
+                        <span>Space or click moves through the orbit.</span>
+                    </div>
+                </div>
+
+                <aside class="mission-card" aria-label="KIRA OS mission status">
+                    <div class="mission-top">
+                        <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
+                        <span id="console-title">Prototype orbit</span>
+                    </div>
+                    <div class="mission-body">
+                        <div class="readout"><span>Status</span><span id="stage-status">Prototype version</span></div>
+                        <div class="readout"><span>Brain</span><span>Orchestrator V1</span></div>
+                        <div class="readout"><span>Runtime</span><span>KIRA Agentic Environment</span></div>
+                        <div class="readout"><span>Kira V1</span><span>Under development</span></div>
+                        <div class="readout"><span>Depth</span><span id="stage-depth">Outer orbit</span></div>
+                        <div class="console" id="stage-console">agentic_compute.boot = prototype<br>completion_policy = verify_before_claim</div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+        <section id="capabilities">
+            <div class="shell">
+                <div class="section-head">
+                    <h2>Built as a local agentic environment, not a chatbot skin.</h2>
+                    <p>Orchestrator chooses the route. KIRA OS provides the computer pathways, permission checks, generated artifacts, live context, and proof layer.</p>
+                </div>
+                <div class="capability-grid">
+                    <article class="tile"><code>01 / context</code><h3>Computer awareness</h3><p>Read-only scans for apps, files, windows, RAM, storage, downloads, project state, and live computer context.</p></article>
+                    <article class="tile"><code>02 / create</code><h3>Artifact generation</h3><p>Fresh PPTX decks with images, DOCX reports, PDFs, notes, package manifests, and research summaries.</p></article>
+                    <article class="tile"><code>03 / act</code><h3>Desktop pathways</h3><p>Open apps, browse the web, inspect pages, connect IDEs, draft MCP configs, and prepare automation steps.</p></article>
+                    <article class="tile"><code>04 / guard</code><h3>Safety boundary</h3><p>Read-first behavior, permission-gated mutation, macOS sandbox direction, protected-path blocking, and failure reporting.</p></article>
+                    <article class="tile"><code>05 / verify</code><h3>Evidence layer</h3><p>The agent should return file paths, browser state, command results, screenshots, or logs before claiming completion.</p></article>
+                    <article class="tile"><code>06 / scale</code><h3>Parallel and background work</h3><p>Independent evidence branches, background tasks, and multi-step recovery for hard agentic workflows.</p></article>
+                </div>
+            </div>
+        </section>
+
+        <section id="benchmark">
+            <div class="shell">
+                <div class="section-head">
+                    <h2>Agentic benchmark signals.</h2>
+                    <p>KIRA OS now includes an executable local agentic harness score, while Hermes and Codex use published professional agent-harness reference results.</p>
+                </div>
+                <div class="benchmark-panel visible">
+                    <div class="benchmark-grid">
+                        <div class="bench-row">
+                            <div class="bench-name">KIRA OS + Orchestrator V1<small>Executable local agentic harness, model-in-loop pending</small></div>
+                            <div class="bar"><span style="--score: 75%"></span></div>
+                            <div class="bench-score">75 / 100</div>
+                        </div>
+                        <div class="bench-row">
+                            <div class="bench-name">Codex CLI + GPT-5.4<small>Harness-Bench professional result</small></div>
+                            <div class="bar"><span style="--score: 80.4%"></span></div>
+                            <div class="bench-score">80.4</div>
+                        </div>
+                        <div class="bench-row">
+                            <div class="bench-name">Hermes Agent<small>Harness-Bench aggregate harness result</small></div>
+                            <div class="bar"><span style="--score: 71.2%"></span></div>
+                            <div class="bench-score">71.2</div>
+                        </div>
+                    </div>
+                    <p class="bench-note">Harness-Bench is a professional benchmark of 106 sandboxed workflow tasks across software engineering, data analysis, workspace/tool operations, knowledge retrieval, office communication, vertical workflows, long-running autonomy, and DevOps. The paper reports Codex with GPT-5.4 at 80.4 and Hermes Agent at 71.2 as an aggregate harness result. KIRA OS scores 75/100 on its included executable local harness, which actually runs local KIRA pathways where possible and reserves points for Orchestrator model-in-loop plus official external Harness-Bench work that was not run here.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="release">
+            <div class="shell">
+                <div class="section-head">
+                    <h2>Prototype release.</h2>
+                    <p>KIRA OS is a local agentic environment for Orchestrator V1, packaged around desktop pathways, generated artifacts, evidence, and safety-aware execution.</p>
+                </div>
+                <div class="release-panel visible">
+                    <div class="link-grid">
+                        <div class="link-card">
+                            <strong>Model</strong>
+                            <p>Orchestrator V1 is public on Hugging Face. Download it separately, then place the files in <code>orchestrator_v1_fused/</code>.</p>
+                            <a class="button primary" href="https://huggingface.co/saggamer/Orchestrator_V1" target="_blank" rel="noreferrer">Hugging Face</a>
+                        </div>
+                        <div class="link-card">
+                            <strong>Code</strong>
+                            <p>The public KIRA OS prototype repository is available on GitHub. Pair the repo with Orchestrator V1 to run the local agentic environment.</p>
+                            <div class="repo-row">
+                                <a id="repo-link-footer" href="https://github.com/saggamer/KIRA-OS" target="_blank" rel="noreferrer">Open GitHub</a>
+                                <a id="release-link-footer" href="https://github.com/saggamer/KIRA-OS/releases/latest" target="_blank" rel="noreferrer">Latest release</a>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="bench-note">Prototype version. Orchestrator V1 is public on Hugging Face, and the KIRA OS prototype code is available on GitHub.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="author">
+            <div class="shell">
+                <div class="section-head">
+                    <h2>Follow the author.</h2>
+                    <p>Follow Saggamer for KIRA OS updates, Orchestrator V1 releases, local agentic compute experiments, and prototype demos.</p>
+                </div>
+                <div class="author-panel visible">
+                    <div class="link-grid">
+                        <div class="link-card">
+                            <strong>X</strong>
+                            <p>Model release notes, development updates, and public build logs.</p>
+                            <a class="button primary" href="https://x.com/saggamer2241" target="_blank" rel="noreferrer">@saggamer2241</a>
+                        </div>
+                        <div class="link-card">
+                            <strong>Instagram</strong>
+                            <p>Visual demos, product shots, and KIRA OS progress posts.</p>
+                            <a class="button primary" href="https://www.instagram.com/true_gamerz_inc/" target="_blank" rel="noreferrer">true_gamerz_inc</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="shell">
+            <span>KIRA OS - prototype version</span>
+            <span>KIRA Agentic Environment for Orchestrator V1. Follow @saggamer2241 and true_gamerz_inc.</span>
+        </div>
+    </footer>
+
+    <script>
+        const root = document.documentElement;
+        const stages = [
+            {
+                title: "Welcome to the next era of local agentic compute.",
+                copy: "KIRA OS is a prototype agentic desktop environment built around Orchestrator V1. Press Space or click to move closer to the black hole and reveal the system.",
+                tags: ["Prototype version", "Local agent", "Orchestrator V1"],
+                depth: "Outer orbit",
+                status: "Prototype version",
+                console: "agentic_compute.boot = prototype<br>completion_policy = verify_before_claim"
+            },
+            {
+                title: "A local AI environment should use the computer.",
+                copy: "KIRA OS gives the model pathways for files, apps, web, artifacts, IDE context, MCP planning, live mode, and scheduled work.",
+                tags: ["Files", "Apps", "Web", "IDE", "MCP", "Artifacts"],
+                depth: "Accretion disk",
+                status: "Pathways exposed",
+                console: "pathways.available = true<br>model.policy = choose_the_route"
+            },
+            {
+                title: "Orchestrator V1 is the decision layer.",
+                copy: "The model is trained for agentic automation and safety. KIRA OS keeps it connected to tools while the backend verifies what really happened.",
+                tags: ["Tool choice", "Safety", "Verification"],
+                depth: "Photon ring",
+                status: "Model bridge active",
+                console: "brain = Orchestrator_V1<br>thoughts.visible = false<br>answer = human_readable"
+            },
+            {
+                title: "Kira V1 is under development.",
+                copy: "Kira V1 is not the current production brain in KIRA OS. It stays in development while Orchestrator V1 powers the agentic prototype.",
+                tags: ["Kira V1", "Training", "Future model"],
+                depth: "Inner lens",
+                status: "Secondary model paused",
+                console: "kira_v1.status = under_development<br>active_brain = orchestrator_v1"
+            },
+            {
+                title: "Benchmark the agent, not just the model.",
+                copy: "Agentic quality depends on model reasoning plus execution paths: tool routing, proof, safety gates, artifact generation, live context, and recovery.",
+                tags: ["Benchmark", "Local harness", "Hermes", "KIRA OS"],
+                depth: "Benchmark orbit",
+                status: "Harness signals",
+                console: "kira.executable_local_harness = 75/100<br>model_in_loop = pending<br>official_harness_bench = pending",
+                benchmark: true
+            },
+            {
+                title: "Artifacts become real deliverables.",
+                copy: "PPTX decks with images, DOCX reports, PDFs, notes, web research, and package files are generated as real outputs with visible paths.",
+                tags: ["PPTX", "DOCX", "PDF", "Reports", "Packages"],
+                depth: "Event edge",
+                status: "Artifact layer",
+                console: "artifact.naming = fresh<br>completion = path_verified"
+            },
+            {
+                title: "Orchestrator V1 is public.",
+                copy: "The model is available on Hugging Face. KIRA OS is the local prototype environment built to give Orchestrator V1 real computer pathways.",
+                tags: ["Hugging Face", "Orchestrator V1", "Public model"],
+                depth: "Release vector",
+                status: "Public model link",
+                console: "model.url = huggingface.co/saggamer/Orchestrator_V1<br>runtime = kira_os_prototype",
+                release: true
+            },
+            {
+                title: "Download the prototype.",
+                copy: "Download KIRA OS from GitHub, download Orchestrator V1 from Hugging Face, place the model files in orchestrator_v1_fused, and run locally.",
+                tags: ["Prototype package", "Desktop agent", "Developer release"],
+                depth: "Singularity",
+                status: "Release page",
+                console: "repo = github.com/saggamer/KIRA-OS<br>model = huggingface.co/saggamer/Orchestrator_V1<br>pairing = local",
+                release: true
+            },
+            {
+                title: "Follow the builder.",
+                copy: "Follow Saggamer for Orchestrator V1 releases, KIRA OS updates, local agentic compute experiments, and prototype demos.",
+                tags: ["X", "Instagram", "Builder updates"],
+                depth: "Signal horizon",
+                status: "Author links",
+                console: "x = @saggamer2241<br>instagram = true_gamerz_inc",
+                author: true
+            }
+        ];
+
+        const els = {
+            kicker: document.getElementById("stage-kicker"),
+            title: document.getElementById("stage-title"),
+            copy: document.getElementById("stage-copy"),
+            tags: document.getElementById("stage-tags"),
+            dots: document.getElementById("stage-dots"),
+            depth: document.getElementById("stage-depth"),
+            status: document.getElementById("stage-status"),
+            console: document.getElementById("stage-console"),
+            benchmark: document.getElementById("benchmark-panel"),
+            release: document.getElementById("release-panel"),
+            author: document.getElementById("author-panel"),
+            next: document.getElementById("next-stage"),
+            back: document.getElementById("back-stage"),
+            repoLink: document.getElementById("repo-link"),
+            releaseLink: document.getElementById("release-link"),
+            repoLinkFooter: document.getElementById("repo-link-footer"),
+            releaseLinkFooter: document.getElementById("release-link-footer")
+        };
+
+        let stage = 0;
+
+        function render() {
+            const item = stages[stage];
+            const progress = stage / Math.max(1, stages.length - 1);
+            root.style.setProperty("--scene-scale", String(1 + progress * 0.34));
+            root.style.setProperty("--halo-opacity", String(0.5 + progress * 0.32));
+            els.kicker.textContent = `Slide ${String(stage + 1).padStart(2, "0")} / ${String(stages.length).padStart(2, "0")}`;
+            els.title.textContent = item.title;
+            els.copy.textContent = item.copy;
+            els.tags.innerHTML = item.tags.map((tag) => `<span>${tag}</span>`).join("");
+            els.dots.innerHTML = stages.map((_, index) => `<span class="dot${index === stage ? " active" : ""}"></span>`).join("");
+            els.depth.textContent = item.depth;
+            els.status.textContent = item.status;
+            els.console.innerHTML = item.console;
+            els.benchmark.classList.toggle("visible", Boolean(item.benchmark));
+            els.release.classList.toggle("visible", Boolean(item.release));
+            els.author.classList.toggle("visible", Boolean(item.author));
+            els.next.textContent = stage === stages.length - 1 ? "Restart orbit" : "Move closer";
+        }
+
+        function setStage(next) {
+            if (next >= stages.length) stage = 0;
+            else if (next < 0) stage = stages.length - 1;
+            else stage = next;
+            render();
+        }
+
+        function shouldIgnore(target) {
+            return Boolean(target.closest("a, button, input, textarea, select, label"));
+        }
+
+        els.next.addEventListener("click", () => setStage(stage + 1));
+        els.back.addEventListener("click", () => setStage(stage - 1));
+        document.addEventListener("click", (event) => {
+            if (!shouldIgnore(event.target)) setStage(stage + 1);
+        });
+        document.addEventListener("keydown", (event) => {
+            if (event.code === "Space" && !shouldIgnore(event.target)) {
+                event.preventDefault();
+                setStage(stage + 1);
+            }
+        });
+        render();
+    </script>
+</body>
+</html>

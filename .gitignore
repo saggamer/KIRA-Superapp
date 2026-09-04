@@ -1,0 +1,62 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.swp
+*.tmp
+*.log
+*.command.log
+.venv/
+.pytest_cache/
+
+# Models are downloaded separately and must never be committed.
+models/
+orchestrator_v1_fused/
+kira_v1_fused/
+kira_os_fused/
+*.safetensors
+*.gguf
+
+# Personal and runtime data.
+kira_agentic_logs/
+kira_chat_history/
+kira_agentic_workspace/
+kira_voice_tmp/
+runtime/
+kira_personalization_rag.json
+kira_smart_memory.json
+kira_scheduled_tasks.json
+
+# Provider settings, usage records, sessions, backups, and generated state.
+kira_technical_architect/coding/api_usage.json
+kira_technical_architect/coding/providers.json
+kira_technical_architect/coding/sessions/
+kira_technical_architect/coding/backups/
+kira_technical_architect/coding/runs/
+kira_technical_architect/ide_bridge/
+kira_technical_architect/*.json
+kira_technical_architect/subagents/*.json
+kira_mcp_connectors/
+kira_plugins/plugin_state.json
+
+# Generated media and internal stress artifacts.
+demo/
+stress_lab/
+*.pptx
+*.docx
+*.pdf
+*.wav
+*.mp4
+
+# Environment and credential files.
+.env
+.env.*
+!.env.example
+*credentials*.json
+*secrets*.json
+*api_key*
+*access_token*
+
+# Local editor and operating-system state.
+.idea/
+.vscode/
+.cursor/

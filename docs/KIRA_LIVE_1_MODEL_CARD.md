@@ -23,6 +23,8 @@ permission-aware actions through KIRA Superapp's THE TREE.
 This is a **research-preview checkpoint package for the KIRA runtime**, not a
 drop-in Transformers model or a hosted inference endpoint. Apple Silicon and
 the KIRA Live Python environment are required.
+Use a **KIRA Live-enabled Superapp checkout**. Older Superapp revisions may not
+include the Live button; downloading this package alone does not add that UI.
 
 1. Use [KIRA Superapp](https://github.com/saggamer/KIRA-Superapp).
 2. Download this repository into the Superapp directory, preserving its paths.

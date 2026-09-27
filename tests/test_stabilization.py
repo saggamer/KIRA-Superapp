@@ -12,6 +12,12 @@ from memory import SmartMemoryStore
 
 
 class StabilizationTests(unittest.TestCase):
+    def test_kira_live_short_chat_is_not_replaced_by_fixed_greeting(self):
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "interface.py")
+        with open(path, encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn('target_brain != "kira"', source)
+
     def test_attachment_import_is_scoped_and_extractable(self):
         brain = KiraBrain.__new__(KiraBrain)
         with tempfile.TemporaryDirectory() as root:
@@ -115,13 +121,16 @@ class StabilizationTests(unittest.TestCase):
         self.assertFalse(result["feature_enabled"])
         self.assertEqual(state["state"], "off")
 
-    def test_live_mode_has_no_launch_control(self):
+    def test_kira_live_test_console_has_guarded_launch_control(self):
         ui_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui.html")
         with open(ui_path, "r", encoding="utf-8") as handle:
             markup = handle.read()
 
-        self.assertNotIn('id="live-toggle"', markup)
-        self.assertIn("Live Mode is disabled for the stabilization release", markup)
+        self.assertIn('id="live-toggle"', markup)
+        self.assertIn('id="live-readiness"', markup)
+        self.assertIn('id="voice-listen-btn"', markup)
+        self.assertIn("disabled", markup)
+        self.assertIn("No fallback was started", markup)
 
     def test_atomic_json_write_replaces_complete_document(self):
         brain = KiraBrain.__new__(KiraBrain)

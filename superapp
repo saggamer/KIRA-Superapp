@@ -4,6 +4,15 @@ set -u
 SCRIPT_PATH="${0:A}"
 APP_DIR="${KIRA_SUPERAPP_HOME:-$(cd "$(dirname "$SCRIPT_PATH")" && pwd)}"
 PYTHON="$APP_DIR/.venv/bin/python"
+if [[ ! -x "$PYTHON" && -x "$APP_DIR/.venv-kira-live/bin/python" ]]; then
+  PYTHON="$APP_DIR/.venv-kira-live/bin/python"
+fi
+
+if [[ "${1:-}" == "--kira-live-experimental" ]]; then
+  export KIRA_LIVE1_EXPERIMENTAL=1
+  export KIRA_LIVE1_DEFAULT=1
+  shift
+fi
 
 if [[ ! -x "$PYTHON" ]]; then
   echo "[KIRA SUPERAPP] Runtime missing: $PYTHON" >&2

@@ -14,6 +14,7 @@ beautifulsoup4>=4.12.3
 Pillow>=10.0.0
 numpy>=1.26.0
 sounddevice>=0.4.6
+pywebrtc-audio==0.2.0
 kokoro-onnx>=0.4.0
 onnxruntime>=1.18.0
 

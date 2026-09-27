@@ -678,8 +678,8 @@
             inset: 0;
             z-index: 120;
             overflow: hidden;
-            background: #09090a;
-            cursor: none;
+            background: #090d18;
+            cursor: auto;
         }
         .live-sphere-canvas, .live-sphere-fallback {
             position: absolute;
@@ -731,7 +731,7 @@
         }
         .live-copy h2 { margin: 0; font-size: clamp(22px, 3vw, 34px); font-weight: 520; letter-spacing: 0; color: rgba(255,255,255,0.94); }
         .live-copy p { min-height: 24px; margin: 10px auto 0; color: rgba(255,255,255,0.50); font-size: 14px; line-height: 1.5; }
-        .live-transcript-line { margin-top: 12px; color: rgba(255,255,255,0.72); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .live-transcript-line { max-height: 104px; margin-top: 12px; padding: 0 12px; color: rgba(255,255,255,0.72); font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow: auto; text-wrap: balance; }
         .live-controls {
             margin: 18px auto 0;
             display: flex;
@@ -752,6 +752,19 @@
             backdrop-filter: blur(16px);
         }
         .live-control.primary { color: #111; background: rgba(242,242,242,0.96); }
+        .live-control:focus-visible, .live-close:focus-visible { outline: 3px solid #8ab4ff; outline-offset: 4px; }
+        .live-control:disabled { opacity: .4; cursor: wait; }
+        .live-control[aria-pressed="true"] { background: #374151; color: #f9fafb; }
+        .live-control.end { width: auto; min-width: 106px; padding: 0 22px; background: #f8dedb; color: #7d2925; font-weight: 600; }
+        .live-copy { bottom: max(28px, env(safe-area-inset-bottom)); width: min(560px, calc(100vw - 32px)); }
+        .live-copy h2 { font-size: clamp(24px, 3vw, 32px); }
+        .live-copy p { max-width: 400px; }
+        .live-transcript-line { max-height: 72px; text-wrap: wrap; scrollbar-width: thin; }
+        .live-transcript-line.expanded { max-height: min(240px, 30vh); background: rgba(14,20,36,.92); border-radius: 16px; padding: 14px; }
+        .live-details { pointer-events: auto; max-height: 24vh; overflow: auto; margin-top: 12px; }
+        .live-details summary { color: #8e9bb4; font-size: 12px; cursor: pointer; }
+        .live-details .live-readiness { width: 100%; margin-top: 10px; }
+        .live-hint { font-size: 11px !important; color: #76839b !important; }
         .live-agent-cursor {
             position: absolute;
             z-index: 8;
@@ -795,6 +808,15 @@
             border: 1px solid rgba(255,255,255,0.12);
             background: rgba(255,255,255,0.07);
         }
+        .live-readiness { width: min(680px, calc(100vw - 40px)); margin: 20px auto 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; text-align: left; }
+        .live-readiness.active { display: none; }
+        .live-readiness-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid rgba(255,255,255,0.09); border-radius: 12px; background: rgba(255,255,255,0.035); }
+        .live-readiness-dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 999px; flex: 0 0 auto; background: #f0a44b; box-shadow: 0 0 10px rgba(240,164,75,.3); }
+        .live-readiness-item.ready .live-readiness-dot { background: #6fd39a; box-shadow: 0 0 10px rgba(111,211,154,.35); }
+        .live-readiness-label { color: rgba(255,255,255,.82); font-size: 12px; }
+        .live-readiness-detail { color: rgba(255,255,255,.38); font-size: 10px; margin-top: 2px; overflow-wrap: anywhere; }
+        .live-control:disabled { cursor: not-allowed; opacity: .38; transform: none; }
+        @media (max-width: 680px) { .live-readiness { grid-template-columns: 1fr; } }
         body.live-mode .live-panel {
             top: 82px;
             right: 32px;
@@ -806,9 +828,7 @@
         body.live-mode > main {
             display: none;
         }
-        /* Live Mode is disabled for the stabilization release. */
         .live-panel,
-        .voice-live,
         .ai-edge-strip {
             display: none !important;
         }
@@ -1270,6 +1290,7 @@
                 <div class="app-header-model relative">
                     <select id="model-selector" class="appearance-none bg-transparent hover:bg-[#2a2a2a] text-lg font-medium py-2 pl-3 pr-8 rounded-lg cursor-pointer focus:outline-none transition-colors text-gray-200">
                         <option value="orchestrator" class="bg-[#1f1f1f] text-sm">Orchestrator V1</option>
+                        <option value="kira" class="bg-[#1f1f1f] text-sm">KIRA Live 1</option>
                     </select>
                     <span class="material-symbols-outlined absolute right-2 top-2.5 text-gray-400 pointer-events-none">expand_more</span>
                 </div>
@@ -1292,6 +1313,10 @@
                 <button id="voice-toggle" onclick="toggleDictation()" title="Dictate a prompt" aria-label="Dictate a prompt" aria-pressed="false" class="header-glass-action flex items-center space-x-2 px-4 py-2 transition-colors">
                     <span class="material-symbols-outlined text-[20px] text-gray-400" id="voice-icon">mic</span>
                     <span class="header-action-label text-sm font-medium text-gray-300" id="voice-text">Dictate</span>
+                </button>
+                <button id="live-toggle" onclick="toggleLiveMonitor(true)" title="Talk with KIRA Live 1" aria-label="Talk with KIRA Live 1" class="header-glass-action flex items-center space-x-2 px-4 py-2 transition-colors">
+                    <span class="material-symbols-outlined text-[20px] text-gray-300">graphic_eq</span>
+                    <span class="header-action-label text-sm font-medium text-gray-300">KIRA Live</span>
                 </button>
             </div>
         </header>
@@ -1668,34 +1693,39 @@
         </div>
     </div>
 
-    <section id="voice-live" class="voice-live hidden" data-state="ready" aria-hidden="true">
+    <section id="voice-live" class="voice-live hidden" data-state="ready" aria-hidden="true" role="dialog" aria-modal="true" aria-label="KIRA Live conversation">
         <canvas id="live-sphere-fallback" class="live-sphere-fallback" aria-hidden="true"></canvas>
         <canvas id="live-sphere-canvas" class="live-sphere-canvas" aria-label="KIRA Live audio-reactive sphere"></canvas>
         <div class="live-vignette"></div>
         <div class="live-topbar">
             <div>
-                <div class="live-wordmark">KIRA Live</div>
-                <div id="voice-live-subtitle" class="text-xs text-gray-500 mt-1">Orchestrator V1 · local voice</div>
+                <div class="live-wordmark">KIRA Live 1</div>
+                <div id="voice-live-subtitle" class="text-xs text-gray-500 mt-1">Your local voice companion</div>
             </div>
             <button onclick="toggleLiveMonitor(false)" class="live-close" title="Close Live mode" aria-label="Close Live mode">
                 <span class="material-symbols-outlined text-[19px]">close</span>
             </button>
         </div>
         <div class="live-copy">
-            <h2 id="voice-live-state">Ready</h2>
-            <p id="voice-live-caption">Speak naturally. KIRA will answer when your turn ends.</p>
-            <div id="voice-live-transcript" class="live-transcript-line">Local voice session ready.</div>
+            <h2 id="voice-live-state" aria-live="polite">Ready to talk</h2>
+            <p id="voice-live-caption">Checking the native Listener → Thinker → Talker path.</p>
+            <div id="voice-live-transcript" class="live-transcript-line" role="log" aria-label="Conversation transcript"></div>
+            <details class="live-details" id="live-details"><summary>Connection &amp; model details</summary>
+                <div id="live-readiness" class="live-readiness" aria-live="polite"></div>
+            </details>
             <div class="live-controls">
-                <button id="voice-listen-btn" onclick="beginVoiceCapture(true)" class="live-control primary" title="Start listening" aria-label="Start listening">
+                <button id="voice-listen-btn" onclick="handleLiveMicrophone()" class="live-control primary" title="Start KIRA Live" aria-label="Start KIRA Live" aria-pressed="false" disabled>
                     <span class="material-symbols-outlined">mic</span>
                 </button>
                 <button onclick="stopVoiceOutput()" class="live-control" title="Interrupt KIRA" aria-label="Interrupt KIRA">
                     <span class="material-symbols-outlined">volume_off</span>
                 </button>
-                <button onclick="refreshLiveMonitor(true)" class="live-control" title="Refresh live context" aria-label="Refresh live context">
-                    <span class="material-symbols-outlined">sensors</span>
+                <button onclick="toggleLiveTranscript(this)" class="live-control" title="Show transcript" aria-label="Show transcript" aria-pressed="false">
+                    <span class="material-symbols-outlined">subtitles</span>
                 </button>
+                <button onclick="toggleLiveMonitor(false)" class="live-control end" aria-label="End live conversation">End</button>
             </div>
+            <p class="live-hint">Speak naturally · You can interrupt · Audio processed on this Mac</p>
         </div>
         <div id="live-agent-cursor" class="live-agent-cursor" aria-hidden="true">
             <span class="live-agent-dot"></span>
@@ -1815,11 +1845,17 @@
         const statusDot = document.getElementById('status-dot');
         const modelSelector = document.getElementById('model-selector');
         const voiceLive = document.getElementById('voice-live');
+        let kiraLiveMicMuted = false;
+        let kiraLiveStarting = false;
+        let kiraLiveStartEpoch = 0;
+        let livePreviousBrain = null;
         const voiceLiveState = document.getElementById('voice-live-state');
         const voiceLiveCaption = document.getElementById('voice-live-caption');
         const voiceLiveSubtitle = document.getElementById('voice-live-subtitle');
         const voiceLiveTranscript = document.getElementById('voice-live-transcript');
         const voiceLiveInput = document.getElementById('voice-live-input');
+        const liveReadiness = document.getElementById('live-readiness');
+        const voiceListenButton = document.getElementById('voice-listen-btn');
         const liveMonitorPanel = document.getElementById('live-monitor-panel');
         const liveMonitorTime = document.getElementById('live-monitor-time');
         const liveFrontApp = document.getElementById('live-front-app');
@@ -1943,7 +1979,8 @@
                 this.resize();
                 window.addEventListener('resize', this.resize);
                 this.frame();
-                loadThreeRuntime().then(THREE => this.initThree(THREE)).catch(() => {});
+                // The lightweight local renderer leaves Apple GPU capacity for
+                // MLX and works without downloading a graphics runtime.
             }
 
             initThree(THREE) {
@@ -1962,7 +1999,7 @@
                     this.basePositions = Float32Array.from(geometry.attributes.position.array);
                     geometry.computeVertexNormals();
                     const material = new THREE.MeshStandardMaterial({
-                        color: 0x999a9c,
+                        color: 0x7c9fff,
                         roughness: 0.46,
                         metalness: 0.34,
                         flatShading: false
@@ -1970,10 +2007,10 @@
                     this.mesh = new THREE.Mesh(geometry, material);
                     this.scene.add(this.mesh);
                     this.scene.add(new THREE.HemisphereLight(0xf0f0f0, 0x111216, 1.55));
-                    const key = new THREE.DirectionalLight(0xffffff, 3.1);
+                    const key = new THREE.DirectionalLight(0x91dcff, 3.1);
                     key.position.set(-2.8, 4.4, 4.8);
                     this.scene.add(key);
-                    const rim = new THREE.DirectionalLight(0x9da0a6, 2.0);
+                    const rim = new THREE.DirectionalLight(0xc48cff, 2.0);
                     rim.position.set(4.5, -1.2, -1.6);
                     this.scene.add(rim);
                     this.fallback = false;
@@ -2059,14 +2096,14 @@
                 ctx.clearRect(0, 0, w, h);
                 ctx.fillStyle = '#09090a';
                 ctx.fillRect(0, 0, w, h);
-                const grad = ctx.createRadialGradient(cx - radius * 0.34, cy - radius * 0.38, radius * 0.08, cx, cy, radius);
-                grad.addColorStop(0, '#ededee');
-                grad.addColorStop(0.38, '#a5a6a9');
-                grad.addColorStop(0.76, '#5e6064');
-                grad.addColorStop(1, '#242529');
                 ctx.save();
                 ctx.translate(cx, cy);
                 ctx.scale(1 - liveVisual.level * 0.05, 1 + liveVisual.level * 0.11);
+                const grad = ctx.createRadialGradient(-radius * 0.34, -radius * 0.38, radius * 0.08, 0, 0, radius);
+                grad.addColorStop(0, '#b5efff');
+                grad.addColorStop(0.38, '#7bafff');
+                grad.addColorStop(0.76, '#8b72d9');
+                grad.addColorStop(1, '#252c59');
                 ctx.beginPath();
                 for (let i = 0; i <= 96; i++) {
                     const angle = (i / 96) * Math.PI * 2;
@@ -2149,6 +2186,7 @@
         let voiceLastSubmittedAt = 0;
         let liveMonitorOpen = false;
         let voiceActivatedByLive = false;
+        let kiraLiveStatus = { conversation_ready: false, checks: [], blockers: [] };
         let lastNativeOverlayState = '';
         let executionProgress = { percent: 0, branches: [] };
         let lastNativeOverlaySentAt = 0;
@@ -2578,7 +2616,7 @@
                 setTimeout(() => targetButton.blur(), 0);
             }
 
-            modelSelector.value = 'orchestrator';
+            if (mode === 'vibe_coding') modelSelector.value = 'orchestrator';
             codingToolbar.classList.toggle('hidden', mode !== 'vibe_coding');
             const workspaceLabel = document.getElementById('workspace-mode-label');
             if (mode === 'vibe_coding') {
@@ -3295,19 +3333,185 @@
         }
 
         async function toggleLiveMonitor(forceState = null) {
-            // Live Mode is intentionally unavailable in this build. Keep this
-            // compatibility entry point inert for old chats and backend events.
-            liveMonitorOpen = false;
-            voiceActivatedByLive = false;
-            document.body.classList.remove('live-mode');
-            closeLiveSurface();
-            setMainWorkspaceInert(false);
-            setAIStripState('off');
-            if (isBackendReady && window.pywebview.api.set_screen_overlay_state) {
-                await window.pywebview.api.set_screen_overlay_state('off');
+            const shouldOpen = forceState === null ? !liveMonitorOpen : Boolean(forceState);
+            if (!shouldOpen) {
+                kiraLiveStartEpoch++;
+                liveMonitorOpen = false;
+                voiceActivatedByLive = false;
+                isVoiceActive = false;
+                kiraLiveMicMuted = false;
+                voiceListenButton.setAttribute('aria-pressed', 'false');
+                voiceListenButton.setAttribute('aria-label', 'Start KIRA Live');
+                voiceListenButton.title = 'Start KIRA Live';
+                voiceListenButton.querySelector('.material-symbols-outlined').textContent = 'mic';
+                if (livePreviousBrain !== null) modelSelector.value = livePreviousBrain;
+                livePreviousBrain = null;
+                if (isBackendReady && window.pywebview.api.stop_live_voice) {
+                    try { await window.pywebview.api.stop_live_voice(); } catch (_) {}
+                }
+                document.body.classList.remove('live-mode');
+                closeLiveSurface();
+                setMainWorkspaceInert(false);
+                setAIStripState('off');
+                if (currentChatId) await loadChat(currentChatId);
+                return { ok: true, status: 'closed' };
             }
-            return { ok: false, status: 'disabled' };
+
+            if (!liveMonitorOpen) {
+                livePreviousBrain = modelSelector.value;
+                // Each newly opened Live surface is a distinct conversation.
+                // Pausing/resuming the microphone does not create another chat.
+                if (isBackendReady) {
+                    const chat = await window.pywebview.api.new_chat('Live conversation');
+                    currentChatId = chat.id;
+                    seenPermissionIds = new Set();
+                    clearChat();
+                    await refreshChatHistory();
+                }
+                voiceLiveTranscript.textContent = '';
+                liveVisual.targetLevel = 0;
+            }
+            liveMonitorOpen = true;
+            isVoiceActive = false;
+            liveReadiness.classList.remove('active');
+            document.body.classList.add('live-mode');
+            voiceLive.classList.remove('hidden');
+            voiceLive.setAttribute('aria-hidden', 'false');
+            setMainWorkspaceInert(true);
+            if (!liveVisual.renderer) liveVisual.renderer = new KiraLiveSphere(liveSphereCanvas, liveSphereFallbackCanvas);
+            liveVisual.renderer.start();
+            setVoiceLiveState('thinking', 'Checking the native Listener → Thinker → Talker path.');
+            await refreshKiraLiveStatus();
+            voiceListenButton.focus();
+            return { ok: true, status: 'opened', readiness: kiraLiveStatus };
         }
+
+        function renderKiraLiveReadiness(status) {
+            kiraLiveStatus = status || { conversation_ready: false, checks: [], blockers: [] };
+            const checks = Array.isArray(kiraLiveStatus.checks) ? kiraLiveStatus.checks : [];
+            liveReadiness.innerHTML = '';
+            checks.forEach(check => {
+                const item = document.createElement('div');
+                item.className = `live-readiness-item ${check.ready ? 'ready' : ''}`;
+                const dot = document.createElement('span');
+                dot.className = 'live-readiness-dot';
+                const copy = document.createElement('div');
+                const label = document.createElement('div');
+                label.className = 'live-readiness-label';
+                label.textContent = check.label || check.key || 'Component';
+                const detail = document.createElement('div');
+                detail.className = 'live-readiness-detail';
+                detail.textContent = check.detail || (check.ready ? 'Ready' : 'Not ready');
+                copy.append(label, detail);
+                item.append(dot, copy);
+                liveReadiness.appendChild(item);
+            });
+
+            const ready = Boolean(kiraLiveStatus.conversation_ready);
+            voiceListenButton.disabled = !ready;
+            voiceLiveSubtitle.textContent = ready
+                ? 'On-device · KIRA Live 1'
+                : 'On-device · Checking connection';
+            setVoiceLiveState(
+                ready ? 'ready' : 'error',
+                ready
+                    ? 'Tap the microphone to start talking.'
+                    : `${(kiraLiveStatus.blockers || []).length} native component(s) still block conversation mode. No fallback was started.`
+            );
+        }
+
+        async function refreshKiraLiveStatus() {
+            if (!isBackendReady || !window.pywebview.api.get_kira_live_status) {
+                renderKiraLiveReadiness({ conversation_ready: false, checks: [], blockers: ['Backend is starting.'] });
+                return kiraLiveStatus;
+            }
+            try {
+                renderKiraLiveReadiness(await window.pywebview.api.get_kira_live_status());
+            } catch (error) {
+                renderKiraLiveReadiness({ conversation_ready: false, checks: [], blockers: [String(error)] });
+            }
+            return kiraLiveStatus;
+        }
+
+        async function startKiraLiveConversation() {
+            if (isVoiceActive || kiraLiveStarting) return;
+            kiraLiveStarting = true;
+            const startEpoch = ++kiraLiveStartEpoch;
+            voiceListenButton.disabled = true;
+            const icon = voiceListenButton.querySelector('.material-symbols-outlined');
+            if (icon) icon.textContent = 'hourglass_top';
+            setVoiceLiveState('loading', 'Loading the local MLX voice model…');
+            try {
+                const status = await refreshKiraLiveStatus();
+                if (!liveMonitorOpen || startEpoch !== kiraLiveStartEpoch) return;
+                if (!status.conversation_ready) return;
+                voiceListenButton.disabled = true;
+                setVoiceLiveState('loading', 'Preparing Listener → Thinker → Talker on Apple silicon…');
+                const result = await window.pywebview.api.start_live_voice(currentChatId);
+                if (!liveMonitorOpen || startEpoch !== kiraLiveStartEpoch) {
+                    await window.pywebview.api.stop_live_voice();
+                    return;
+                }
+                if (!result || !result.ok) {
+                    isVoiceActive = false;
+                    setVoiceLiveState('error', (result && result.error) || 'Native KIRA Live session could not start.');
+                    return;
+                }
+                isVoiceActive = true;
+                if (result.chat_id) currentChatId = result.chat_id;
+                modelSelector.value = 'kira';
+                kiraLiveMicMuted = false;
+                voiceListenButton.setAttribute('aria-label', 'Mute microphone');
+                voiceListenButton.title = 'Mute microphone';
+                voiceListenButton.setAttribute('aria-pressed', 'false');
+                voiceActivatedByLive = true;
+                liveReadiness.classList.add('active');
+                if (icon) icon.textContent = 'graphic_eq';
+                setVoiceLiveState('listening', 'Listening locally. Speak when you’re ready.');
+            } catch (error) {
+                isVoiceActive = false;
+                setVoiceLiveState('error', String(error));
+            } finally {
+                kiraLiveStarting = false;
+                voiceListenButton.disabled = !kiraLiveStatus.conversation_ready;
+                if (!isVoiceActive && icon) icon.textContent = 'mic';
+            }
+        }
+
+        async function handleLiveMicrophone() {
+            if (!isVoiceActive) return startKiraLiveConversation();
+            voiceListenButton.disabled = true;
+            try {
+                const result = await window.pywebview.api.set_live_microphone_muted(!kiraLiveMicMuted);
+                if (!result || !result.ok) throw new Error(result?.error || 'Microphone control unavailable.');
+                kiraLiveMicMuted = Boolean(result.muted);
+                voiceListenButton.setAttribute('aria-pressed', String(kiraLiveMicMuted));
+                voiceListenButton.setAttribute('aria-label', kiraLiveMicMuted ? 'Resume microphone' : 'Mute microphone');
+                voiceListenButton.title = kiraLiveMicMuted ? 'Resume microphone' : 'Mute microphone';
+                voiceListenButton.querySelector('.material-symbols-outlined').textContent = kiraLiveMicMuted ? 'mic_off' : 'mic';
+                setVoiceLiveState(kiraLiveMicMuted ? 'paused' : 'listening', kiraLiveMicMuted ? 'Microphone muted. Tap to resume.' : 'Listening. Speak when you’re ready.');
+            } catch (error) { setVoiceLiveState('error', String(error)); }
+            finally { voiceListenButton.disabled = false; }
+        }
+
+        function toggleLiveTranscript(button) {
+            const expanded = voiceLiveTranscript.classList.toggle('expanded');
+            button.setAttribute('aria-pressed', String(expanded));
+            button.setAttribute('aria-label', expanded ? 'Collapse transcript' : 'Show transcript');
+        }
+
+        voiceLive.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                toggleLiveMonitor(false);
+            } else if (event.key === 'Tab') {
+                const controls = [...voiceLive.querySelectorAll('button:not(:disabled), summary')];
+                const first = controls[0], last = controls[controls.length - 1];
+                if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+                else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+            }
+        });
 
         async function refreshLiveMonitor(force = false) {
             if (!isBackendReady || !liveMonitorOpen) return;
@@ -3419,6 +3623,8 @@
         async function createNewChat(render = true) {
             if (!isBackendReady) return;
             if (dictationActive) await toggleDictation();
+            if (liveMonitorOpen || isVoiceActive || kiraLiveStarting) await toggleLiveMonitor(false);
+            voiceLiveTranscript.textContent = '';
 
             const chat = await window.pywebview.api.new_chat("New Chat");
             currentChatId = chat.id;
@@ -3688,6 +3894,8 @@
                 size: item.size,
                 mime: item.mime
             }));
+            const selectedBrain = currentMode !== 'vibe_coding' && modelSelector.value === 'kira'
+                ? 'kira' : 'orchestrator';
             const agenticVisual = currentMode === 'agent' || currentMode === 'vibe_coding' || promptText.startsWith('/');
 
             renderUserMessage(promptText, Date.now() / 1000, promptAttachments);
@@ -3696,17 +3904,16 @@
             updateSystemStatus("Thinking");
             setAIStripState(agenticVisual ? 'agentic' : 'off');
             if (isVoiceActive) {
-                setVoiceLiveState('thinking', 'Orchestrator V1 is thinking...');
+                setVoiceLiveState('thinking', `${selectedBrain === 'kira' ? 'KIRA Live 1' : 'Orchestrator V1'} is thinking...`);
             } else {
                 setVoiceLiveState('ready', '');
             }
 
             const backendMode = source === 'voice' ? 'voice' : currentMode;
-            modelSelector.value = 'orchestrator';
             const result = await window.pywebview.api.send_prompt(
                 promptText,
                 backendMode,
-                'orchestrator',
+                selectedBrain,
                 currentChatId,
                 promptAttachments
             );
@@ -3891,7 +4098,9 @@
         function setVoiceLiveState(state, caption = '') {
             voiceLive.dataset.state = state;
             const labels = {
-                ready: 'Ready',
+                ready: 'Ready to talk',
+                loading: 'Loading model',
+                paused: 'Microphone muted',
                 listening: 'Listening',
                 hearing: 'Hearing you',
                 thinking: 'Thinking',
@@ -3899,6 +4108,9 @@
                 agentic: 'Working',
                 error: 'Needs attention'
             };
+            if (kiraLiveMicMuted && ['listening', 'hearing'].includes(state)) state = 'paused';
+            if (state === 'paused') caption = 'Microphone muted. Tap to resume.';
+            voiceLive.dataset.state = state;
             voiceLiveState.textContent = labels[state] || 'Ready';
             if (caption) voiceLiveCaption.textContent = caption;
             liveVisual.phase = state;
@@ -3917,9 +4129,7 @@
             const level = Math.max(0, Math.min(1, Number(value || 0)));
             liveVisual.targetLevel = level;
             liveVisual.lastLevelAt = performance.now();
-            if (source === 'mic' && level > 0.08 && liveVisual.phase === 'listening') {
-                setVoiceLiveState('hearing', 'I’m listening.');
-            }
+            // Only the backend SPEECH_START event may claim speech detection.
         }
 
         function setLiveAgentProgress(label = 'Working', percent = null) {
@@ -4044,6 +4254,7 @@
                 try {
                     const started = await window.pywebview.api.start_live_voice(currentChatId);
                     if (started && started.ok) {
+                        if (started.chat_id) currentChatId = started.chat_id;
                         voiceListening = true;
                         setVoiceLiveState('listening', 'Listening locally. Speak when you’re ready.');
                         return;
@@ -4177,7 +4388,7 @@
 
             appendVoiceTranscript('You', clean);
             voiceLiveInput.value = '';
-            modelSelector.value = 'orchestrator';
+            modelSelector.value = 'kira';
             if (!options.alreadyRecorded && window.pywebview.api.complete_voice_turn) {
                 try {
                     await window.pywebview.api.complete_voice_turn(clean, 'typed_voice', 1, false);
@@ -4194,6 +4405,14 @@
 
         async function stopVoiceOutput() {
             clearTimeout(voiceRestartTimer);
+            if (liveMonitorOpen && isVoiceActive) {
+                try {
+                    const result = await window.pywebview.api.interrupt_live_response();
+                    if (!result || !result.ok) throw new Error(result?.error || 'Could not interrupt response.');
+                    setVoiceLiveState(kiraLiveMicMuted ? 'paused' : 'listening', kiraLiveMicMuted ? 'Microphone muted.' : 'Stopped. I’m listening.');
+                } catch (error) { setVoiceLiveState('error', String(error)); }
+                return;
+            }
             try {
                 if (window.pywebview.api.stop_voice) {
                     await window.pywebview.api.stop_voice();
@@ -4791,6 +5010,8 @@
         function handleVoiceBackendEvent(update) {
             const event = String(update.event || '').toUpperCase();
             const extra = update.extra || {};
+            const eventChatId = extra.chat_id || update.chat_id;
+            if (eventChatId && currentChatId && eventChatId !== currentChatId) return;
             if (event === 'AUDIO_LEVEL') {
                 setLiveAudioLevel(extra.level || extra.rms || 0, 'mic');
             } else if (event === 'SPEECH_START') {
@@ -4800,6 +5021,19 @@
             } else if (event === 'STT_FINAL' || event === 'TURN_END') {
                 appendVoiceTranscript('You', update.content);
                 setVoiceLiveState('thinking', 'Orchestrator V1 is thinking...');
+            } else if (event === 'TRANSCRIPT') {
+                appendVoiceTranscript('You', update.content);
+                setVoiceLiveState('thinking', 'KIRA Live 1 is thinking...');
+            } else if (event === 'RESPONSE_TEXT') {
+                appendVoiceTranscript('KIRA', update.content);
+                setVoiceLiveState('thinking', 'Preparing direct neural speech...');
+            } else if (event === 'FIRST_AUDIO') {
+                setVoiceLiveState('speaking', 'Speaking. You can interrupt at any time.');
+            } else if (event === 'RESPONSE_FINISHED') {
+                setVoiceLiveState('listening', 'Listening again.');
+            } else if (event === 'RESPONSE_INTERRUPTED') {
+                setLiveAudioLevel(0, 'tts');
+                setVoiceLiveState('listening', 'Interrupted. I’m listening.');
             } else if (event === 'VOICE_PROMPT_QUEUED') {
                 setVoiceLiveState('thinking', 'Orchestrator V1 is thinking...');
             } else if (event === 'TTS_START') {
@@ -4809,9 +5043,11 @@
             } else if (event === 'TTS_DONE' || event === 'TTS_INTERRUPTED') {
                 setLiveAudioLevel(0, 'tts');
                 setVoiceLiveState('listening', event === 'TTS_INTERRUPTED' ? 'Interrupted. I’m listening.' : 'Listening again.');
-            } else if (event === 'VOICE_CAPTURE_START' || event === 'LIVE_VOICE_START') {
+            } else if (event === 'VOICE_CAPTURE_START' || event === 'LIVE_VOICE_START' || event === 'LISTENING_STARTED') {
                 setVoiceLiveState('listening', 'Listening locally. Speak when you’re ready.');
-            } else if (event === 'STT_ERROR' || event === 'TTS_ERROR') {
+            } else if (event === 'PRIVACY_OUTPUT_BLOCKED') {
+                setVoiceLiveState('error', 'A private-reasoning pattern was blocked before speech.');
+            } else if (event === 'STT_ERROR' || event === 'TTS_ERROR' || event === 'LIVE_ERROR') {
                 setVoiceLiveState('error', update.content || extra.error || 'The local voice stack needs attention.');
             }
         }

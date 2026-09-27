@@ -1,13 +1,18 @@
 import gc
 import json
 import os
+import re
 import sys
 import traceback
 import types
+from kira_live.privacy import sanitize_public_output
 
 
 RUNTIME_STOP_TOKEN_IDS = {1, 49, 51, 106}
 MAX_OUTPUT_TOKENS = max(256, int(os.environ.get("KIRA_WORKER_MAX_OUTPUT_TOKENS", "1200")))
+def sanitize_generated_content(content):
+    """Return only public answer text; private reasoning never crosses IPC."""
+    return sanitize_public_output(content)
 
 
 def install_fast_transformers_shim():
@@ -164,12 +169,26 @@ def clear_mlx_cache():
         pass
 
 
-def configure_stop_tokens(active_tokenizer):
+def configure_mlx_cache():
+    """Bound reusable GPU buffers without flushing them after every answer."""
+    try:
+        import mlx.core as mx
+
+        physical = int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"))
+        limit = min(768 * 1024**2, max(128 * 1024**2, physical // 64))
+        mx.set_cache_limit(limit)
+        return limit
+    except Exception:
+        return 0
+
+
+def configure_stop_tokens(active_tokenizer, include_runtime_tokens=True):
     existing = set(getattr(active_tokenizer, "eos_token_ids", []) or [])
     eos_token_id = getattr(active_tokenizer, "eos_token_id", None)
     if eos_token_id is not None:
         existing.add(int(eos_token_id))
-    existing.update(RUNTIME_STOP_TOKEN_IDS)
+    if include_runtime_tokens:
+        existing.update(RUNTIME_STOP_TOKEN_IDS)
     try:
         active_tokenizer.eos_token_ids = existing
     except Exception:
@@ -189,6 +208,7 @@ def main():
     model = None
     tokenizer = None
     current_brain = None
+    kira_native_thinker = False
 
     for raw_line in sys.stdin:
         raw_line = raw_line.strip()
@@ -206,23 +226,57 @@ def main():
                 break
 
             if request_type == "load":
-                install_fast_transformers_shim()
+                current_brain = request.get("brain", "")
+                kira_native_thinker = False
+                # Fused Orchestrator checkpoints use KIRA's lightweight tokenizer
+                # shim. Qwen3.5 and its LoRA adapter need the full Transformers
+                # tokenizer/detokenizer contract supplied by MLX-LM.
+                if current_brain != "kira":
+                    install_fast_transformers_shim()
                 clear_mlx_cache()
                 gc.collect()
-                from mlx_lm import load
-
+                cache_limit = configure_mlx_cache()
                 model_path = request["model_path"]
-                try:
-                    model, tokenizer = load(model_path, lazy=True)
-                except TypeError:
-                    model, tokenizer = load(model_path)
-                configure_stop_tokens(tokenizer)
-                current_brain = request.get("brain", "")
+                adapter_path = request.get("adapter_path") or None
+                thinker_addons_path = request.get("thinker_addons_path") or None
+                thinker_continuation_path = request.get("thinker_continuation_path") or None
+                expert_rank = int(request.get("expert_rank", 128))
+                if current_brain == "kira" and thinker_addons_path:
+                    from kira_live.mlx_thinker import KiraMLXThinker
+
+                    model = KiraMLXThinker.from_pretrained(model_path, expert_rank=expert_rank)
+                    model.load_weights(thinker_addons_path, strict=False)
+                    if thinker_continuation_path:
+                        model.load_weights(thinker_continuation_path, strict=False)
+                    model.eval()
+                    tokenizer = model.tokenizer
+                    kira_native_thinker = True
+                else:
+                    from mlx_lm import load
+
+                    try:
+                        model, tokenizer = load(
+                            model_path,
+                            adapter_path=adapter_path,
+                            lazy=True,
+                        )
+                    except TypeError:
+                        model, tokenizer = load(model_path, adapter_path=adapter_path)
+                configure_stop_tokens(
+                    tokenizer,
+                    include_runtime_tokens=current_brain != "kira",
+                )
                 send({
                     "id": request_id,
                     "ok": True,
                     "loaded": True,
                     "brain": current_brain,
+                    "adapter": adapter_path,
+                    "thinker_addons": thinker_addons_path,
+                    "thinker_continuation": thinker_continuation_path,
+                    "expert_rank": expert_rank if kira_native_thinker else None,
+                    "native_thinker": kira_native_thinker,
+                    "mlx_cache_limit": cache_limit,
                     "stop_token_ids": sorted(RUNTIME_STOP_TOKEN_IDS),
                 })
                 continue
@@ -231,13 +285,28 @@ def main():
                 if model is None or tokenizer is None:
                     raise RuntimeError("Model is not loaded in the isolated worker.")
 
-                from mlx_lm import generate
-
                 prompt = str(request.get("prompt", ""))
                 max_tokens = max(32, min(int(request.get("max_tokens", 900)), MAX_OUTPUT_TOKENS))
                 temperature = max(0.0, min(float(request.get("temperature", 0.35)), 2.0))
-                sampler = create_sampler(temperature)
-                try:
+                if kira_native_thinker:
+                    import mlx.core as mx
+
+                    token_ids = mx.array(
+                        [tokenizer.encode(prompt, add_special_tokens=False)],
+                        dtype=mx.int32,
+                    )
+                    embeddings = model.embed(token_ids)
+                    generated = model.generate_from_embeddings(
+                        embeddings,
+                        ngram_ids=token_ids,
+                        max_tokens=min(max_tokens, 256),
+                        compute_response_hidden=False,
+                    )
+                    content = generated.text
+                else:
+                    from mlx_lm import generate
+
+                    sampler = create_sampler(temperature)
                     # One request must perform exactly one inference call. Retrying is
                     # owned by the parent process after this worker is restarted.
                     content = generate(
@@ -248,10 +317,8 @@ def main():
                         sampler=sampler,
                         verbose=False,
                     )
-                finally:
-                    clear_mlx_cache()
-                    gc.collect()
-                send({"id": request_id, "ok": True, "content": content})
+                public_content = sanitize_public_output(content, live=True) if current_brain == "kira" else sanitize_generated_content(content)
+                send({"id": request_id, "ok": True, "content": public_content})
                 continue
 
             raise RuntimeError("Unknown model worker request type: " + request_type)

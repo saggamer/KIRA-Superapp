@@ -330,7 +330,11 @@ class AdaptiveRMSVad:
         if not speech:
             adaptation = 0.025 if rms < self.noise_floor * 2.0 else 0.005
             self.noise_floor = (1.0 - adaptation) * self.noise_floor + adaptation * rms
-        probability = min(1.0, rms / max(self.threshold, 1e-6))
+        # Map the adaptive RMS threshold into a calibrated probability. The old
+        # direct ratio assigned quiet room noise probabilities near 0.5, which
+        # crossed downstream VAD start thresholds despite `speech` being false.
+        ratio = rms / max(self.threshold, 1e-6)
+        probability = max(0.0, min(1.0, (ratio - 0.55) / 0.65))
         return speech, probability
 
     def close(self):

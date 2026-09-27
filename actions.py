@@ -1,4 +1,5 @@
 import gc
+import fnmatch
 import hashlib
 import json
 import os
@@ -19,6 +20,8 @@ from datetime import datetime, timedelta
 from html import unescape
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 from urllib.request import Request, urlopen
+from kira_live.public_guard import tools_disallowed
+from kira_live.tree_scope import live_tree_scope
 
 try:
     import httpx
@@ -2007,10 +2010,27 @@ class KiraActionsMixin:
 
         return None
 
-    def _build_deterministic_agentic_blocks(self, raw_prompt, current_output="", chat_id=None):
+    def _build_deterministic_agentic_blocks(self, raw_prompt, current_output="", chat_id=None, *, kira_live=False):
         text = re.sub(r"\s+", " ", str(raw_prompt or "").strip())
         lowered = text.lower()
+        kira_tree = kira_live or getattr(self, "current_brain", "") == "kira"
+        if kira_tree and tools_disallowed(text):
+            return ""
         blocks = []
+
+        # Exact user-quoted paths can use a bounded read-only fallback when a
+        # small local planner fails to emit the Tree contract. Never infer a
+        # path from model prose or convert an ambiguous request into a mutation.
+        quoted_paths = re.findall(r"[`\"]((?:/|~/)[^`\"\n]+)[`\"]", text)
+        if kira_tree and len(quoted_paths) == 1 and not re.search(r"\b(?:delete|move|write|edit|overwrite)\b", lowered):
+            path = quoted_paths[0]
+            pattern = re.search(r"\b(?:matching|named|pattern)\s+([*?A-Za-z0-9_.-]+)", text, re.I)
+            if re.search(r"\b(?:find|search)\b", lowered) and pattern:
+                blocks.append(f"[SEARCH_FILES]\nPATH: {path}\nPATTERN: {pattern.group(1)}\n[/SEARCH_FILES]")
+            elif re.search(r"\b(?:list|show)\b", lowered) and re.search(r"\b(?:files|folder|directory|contents)\b", lowered):
+                blocks.append(f"[LIST_DIR]\nPATH: {path}\n[/LIST_DIR]")
+            elif re.search(r"\b(?:read|inspect)\b", lowered) and re.search(r"\b(?:file|text|contents)\b", lowered):
+                blocks.append(f"[READ_FILE]\nPATH: {path}\n[/READ_FILE]")
 
         if self._prompt_requests_app_choice(text):
             blocks.append("[APP_LIST]\n[/APP_LIST]")
@@ -6539,7 +6559,7 @@ if __name__ == "__main__":
                 else:
                     logs.append(self._queue_permission(
                         "search_files",
-                        {"path": path, "pattern": pattern},
+                        {"path": path, "pattern": pattern, **({"kira_live": True} if live_tree_scope.get() or getattr(self, "current_brain", "") == "kira" else {})},
                         self._read_permission_preview(path) + f"\nPattern: {pattern}",
                         chat_id
                     ))
@@ -7636,6 +7656,8 @@ if __name__ == "__main__":
             return self._list_dir_tool(payload["path"])
 
         if action == "search_files":
+            if payload.get("kira_live"):
+                return self._search_files_tool(payload["path"], payload["pattern"], kira_live=True)
             return self._search_files_tool(payload["path"], payload["pattern"])
 
         if action == "find_in_computer":
@@ -9782,10 +9804,33 @@ if __name__ == "__main__":
         except Exception as e:
             return f"LIST_DIR ERROR: `{path}`\n{e}"
 
-    def _search_files_tool(self, path, pattern):
+    def _search_files_tool(self, path, pattern, *, kira_live=False):
         try:
             if not os.path.exists(path):
                 return f"SEARCH_FILES: Path not found: `{path}`"
+
+            # A leading shell wildcard is a filename glob, not a valid rg
+            # content regex (for example *.txt). Keep legacy content searches
+            # intact while giving the Tree a real filename-search contract.
+            if (kira_live or live_tree_scope.get() or getattr(self, "current_brain", "") == "kira") and str(pattern).startswith(("*", "?")):
+                try:
+                    res = self._run_seatbelt_subprocess(
+                        ["rg", "--files", "--hidden", "--glob", "!.git/*", "--glob", pattern, path],
+                        mode="read_only", timeout=12,
+                    )
+                    if res.returncode not in {0, 1}:
+                        return "SEARCH_FILES ERROR: " + self._truncate(res.stderr, 1200)
+                    output = self._truncate(res.stdout.strip() or "(no matches)", 12000)
+                except FileNotFoundError:
+                    matches = []
+                    deadline = time.time() + 10
+                    for root, dirs, files in os.walk(path):
+                        if time.time() > deadline or len(matches) >= 200:
+                            break
+                        dirs[:] = [name for name in dirs if name != ".git"]
+                        matches.extend(os.path.join(root, name) for name in files if fnmatch.fnmatch(name, pattern))
+                    output = self._truncate("\n".join(matches[:200]) or "(no matches)", 12000)
+                return f"SEARCH_FILES: filename glob `{pattern}` in `{path}`\n```\n{output}\n```"
 
             try:
                 res = self._run_seatbelt_subprocess(

@@ -1,0 +1,13 @@
+# KIRA Live native runtime. Install alongside requirements.txt for Superapp UI.
+mlx==0.32.2
+mlx-lm==0.31.1
+mlx-audio==0.4.1
+transformers==5.17.0
+numpy==2.5.3
+sounddevice==0.5.3
+soundfile==0.14.0
+huggingface-hub==1.32.0
+safetensors==0.8.0
+ten-vad==1.0.6.8
+scipy==1.18.1
+pywebrtc-audio==0.2.0

@@ -6,10 +6,12 @@ __pycache__/
 *.log
 *.command.log
 .venv/
+.venv*/
 .pytest_cache/
 
 # Models are downloaded separately and must never be committed.
 models/
+weights/
 orchestrator_v1_fused/
 kira_v1_fused/
 kira_os_fused/
@@ -25,6 +27,7 @@ runtime/
 kira_personalization_rag.json
 kira_smart_memory.json
 kira_scheduled_tasks.json
+kira_live/*.sqlite3*
 
 # Provider settings, usage records, sessions, backups, and generated state.
 kira_technical_architect/coding/api_usage.json
@@ -55,6 +58,10 @@ stress_lab/
 *secrets*.json
 *api_key*
 *access_token*
+
+# Rebuildable KIRA Live training manifests, checkpoints, and metrics.
+training_data/
+training_runs/
 
 # Local editor and operating-system state.
 .idea/

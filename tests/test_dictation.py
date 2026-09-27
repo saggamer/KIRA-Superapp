@@ -61,8 +61,33 @@ class DictationTests(unittest.TestCase):
         finally:
             self.brain._dictation_lock.release()
 
-    def test_live_entrypoint_is_disabled(self):
-        self.assertFalse(self.brain.start_live_voice()['ok'])
+    def test_live_entrypoint_fails_closed_when_weights_are_unavailable(self):
+        with patch.object(self.brain, 'get_kira_live_status', return_value={'conversation_ready': False}):
+            self.assertFalse(self.brain.start_live_voice()['ok'])
+
+    def test_live_releases_idle_text_worker_before_loading_voice_weights(self):
+        self.brain.model_worker_process = object()
+        self.brain.model_worker_io_lock = threading.Lock()
+        self.brain._stop_model_worker = Mock()
+        self.brain.active_model = object()
+        self.brain.active_tokenizer = object()
+        self.brain.current_brain = 'kira'
+        self.brain._release_text_worker_for_live()
+        self.brain._stop_model_worker.assert_called_once()
+        self.assertIsNone(self.brain.active_model)
+        self.assertIsNone(self.brain.current_brain)
+
+    def test_live_does_not_interrupt_a_busy_text_answer(self):
+        self.brain.model_worker_process = object()
+        self.brain.model_worker_io_lock = threading.Lock()
+        self.brain.model_worker_io_lock.acquire()
+        self.brain._stop_model_worker = Mock()
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'text answer is still running'):
+                self.brain._release_text_worker_for_live()
+            self.brain._stop_model_worker.assert_not_called()
+        finally:
+            self.brain.model_worker_io_lock.release()
 
 
 if __name__ == '__main__':

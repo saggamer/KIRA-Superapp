@@ -26,6 +26,8 @@ from actions import KiraActionsMixin
 from coding import KiraCodingMixin
 from memory import SmartMemoryStore
 from voice import KiraVoiceMixin
+from kira_live.policy import live_text_system_instruction, tree_execution_instruction
+from kira_live.public_guard import guard_public_reply, tools_disallowed
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -33,20 +35,48 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
     def __init__(self):
         # DUAL BRAINS RESTORED
         self.app_root = BASE_DIR
+        self.kira_live_experimental = False  # Kept for older UI clients; Live is selectable normally.
+        self.kira_live_default = str(
+            os.environ.get("KIRA_LIVE1_DEFAULT", "")
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        self.kira_adapter_path = os.path.abspath(os.path.expanduser(
+            os.environ.get(
+                "KIRA_LIVE1_ADAPTER_PATH",
+                os.path.join(self.app_root, "training_runs", "kira_qwen35_agentic_stage1_stable"),
+            )
+        ))
+        self.kira_thinker_addons_path = os.path.abspath(os.path.expanduser(
+            os.environ.get(
+                "KIRA_LIVE1_THINKER_ADDONS_PATH",
+                os.path.join(
+                    self.app_root,
+                    "training_runs",
+                    "kira_live_thinker_addons_v1",
+                    "thinker_addons.safetensors",
+                ),
+            )
+        ))
+        self.kira_thinker_continuation_path = str(
+            os.environ.get("KIRA_LIVE1_THINKER_CONTINUATION_PATH", "")
+        ).strip()
+        self.kira_expert_rank = int(os.environ.get("KIRA_LIVE1_EXPERT_RANK", "128"))
         self.orch_path = self._first_existing_path(self._orchestrator_model_candidates())
-        self.kira_path = self._first_existing_path([
+        kira_candidates = [
             os.path.join(self.app_root, "kira_v1_fused"),
             os.path.join(self.app_root, "models", "kira_v1_fused"),
             os.path.join(self.app_root, "kira_os_fused"),
             os.path.join(self.app_root, "models", "kira_os_fused"),
             os.path.join(os.path.expanduser("~"), "Desktop", "Kira_OS", "kira_v1_fused"),
             os.path.join(os.path.expanduser("~"), "Desktop", "Kira_OS", "kira_os_fused"),
-        ])
+        ]
+        kira_candidates = self._kira_live_model_candidates() + kira_candidates
+        self.kira_path = self._first_existing_path(kira_candidates)
 
         self.agentic_workspace = os.path.join(self.app_root, "kira_agentic_workspace")
         self.attachments_workspace = os.path.join(self.agentic_workspace, "attachments")
         self.agentic_logs_path = os.path.join(self.app_root, "kira_agentic_logs")
         self.chat_history_path = os.path.join(self.app_root, "kira_chat_history")
+        self.chat_history_lock = threading.RLock()
         self.mcp_workspace = os.path.join(self.app_root, "kira_mcp_connectors")
         self.plugins_workspace = os.path.join(self.app_root, "kira_plugins")
         self.plugin_state_path = os.path.join(self.plugins_workspace, "plugin_state.json")
@@ -146,6 +176,13 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 "[!] Orchestrator V1 is not loadable. Set KIRA_ORCHESTRATOR_PATH "
                 "to a folder containing config.json, tokenizer.json, and model weights. "
                 f"Resolved path: {self.orch_path}"
+            )
+        if not os.path.isfile(
+            self.kira_thinker_addons_path
+        ):
+            print(
+                "[!] KIRA Live 1 accepted Thinker additions not found at "
+                f"{self.kira_thinker_addons_path}"
             )
         if not os.path.exists(self.kira_path):
             print(f"[!] Warning: Kira V1 not found at {self.kira_path}")
@@ -270,6 +307,20 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 seen.add(expanded)
                 unique.append(expanded)
         return unique
+
+    def _kira_live_model_candidates(self):
+        candidates = [os.environ.get("KIRA_LIVE1_MODEL_PATH", "")]
+        try:
+            from kira_live.weights import KIRA_LIVE_WEIGHT_SPECS, resolve_weight
+            thinker_spec = next(spec for spec in KIRA_LIVE_WEIGHT_SPECS if spec.role == "thinker")
+            candidates.append(str(resolve_weight(thinker_spec).snapshot))
+        except (FileNotFoundError, ValueError):
+            pass
+        return [
+            os.path.abspath(os.path.expanduser(str(candidate)))
+            for candidate in candidates
+            if candidate
+        ]
 
     def _is_loadable_model_path(self, candidate):
         if not candidate or not os.path.isdir(candidate):
@@ -449,6 +500,10 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
     def _evict_and_load(self, target_brain):
         target_brain = str(target_brain or "orchestrator").lower()
         model_path = self.orch_path if target_brain == "orchestrator" else self.kira_path
+        adapter_path = ""
+        thinker_addons_path = ""
+        if target_brain == "kira":
+            thinker_addons_path = self.kira_thinker_addons_path
         if not self._is_loadable_model_path(model_path):
             raise FileNotFoundError(
                 f"{target_brain.capitalize()} model is incomplete at {model_path}. "
@@ -459,6 +514,15 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 f"{target_brain.capitalize()} model weights are stored as cloud-only placeholders at "
                 f"{model_path}. Download that folder in Finder (Download Now), then retry."
             )
+        if thinker_addons_path and not os.path.isfile(thinker_addons_path):
+            raise FileNotFoundError(
+                f"KIRA Live 1 Thinker additions are missing at {thinker_addons_path}."
+            )
+        continuation_path = getattr(self, "kira_thinker_continuation_path", "") if target_brain == "kira" else ""
+        if continuation_path and not os.path.isfile(continuation_path):
+            raise FileNotFoundError(f"KIRA Live 1 continuation is missing at {continuation_path}.")
+        if adapter_path and not os.path.isfile(os.path.join(adapter_path, "adapters.safetensors")):
+            raise FileNotFoundError(f"KIRA Live 1 adapter is incomplete at {adapter_path}.")
 
         if (
             self.current_brain == target_brain
@@ -485,8 +549,12 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             self._model_worker_request({
                 "type": "load",
                 "brain": target_brain,
-                "model_path": model_path
-            }, timeout=self.kira_model_worker_load_timeout if target_brain == "kira" else self.model_worker_load_timeout)
+                "model_path": model_path,
+                "adapter_path": adapter_path,
+                "thinker_addons_path": thinker_addons_path,
+                "thinker_continuation_path": continuation_path,
+                "expert_rank": getattr(self, "kira_expert_rank", 128),
+            }, timeout=self.model_worker_load_timeout)
             self.current_brain = target_brain
             # Proxy markers only. The real MLX objects live in the worker process.
             self.active_model = {"isolated_worker": True, "brain": target_brain}
@@ -842,22 +910,39 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
 
     def _fast_simple_chat_response(self, raw_prompt, target_brain):
         if target_brain == "kira":
-            return "Hi, I’m Kira V1. I’m ready."
+            return f"Hi, I’m {self._brain_display_name(target_brain)}. I’m ready."
 
         return (
             "Hi, I’m here. Orchestrator V1 is ready for normal chat, file inspection, "
             "web/search work, app control, and agentic tasks when you ask for them."
         )
 
+    def _brain_display_name(self, target_brain):
+        if str(target_brain or "").lower() == "kira":
+            return "KIRA Live 1"
+        return "Orchestrator V1"
+
+    def _select_brain_for_mode(self, mode, selected_model):
+        mode = str(mode or "").lower()
+        selected_model = str(selected_model or "").lower()
+        if mode == "vibe_coding":
+            return "orchestrator"
+        if mode in {"chat", "voice", "agent", "agentic", "agentic_rag", "agentic task chat"}:
+            if selected_model in {"kira", "kira_live", "kira-live"}:
+                return "kira"
+            if selected_model in {"", "default"} and getattr(self, "kira_live_default", False):
+                return "kira"
+        return "orchestrator"
+
     def _model_timeout_response(self, raw_prompt, target_brain, agentic_mode_requested=False):
         if agentic_mode_requested:
             return (
-                f"{target_brain.capitalize()} V1 did not return a verified answer in time. "
+                f"{self._brain_display_name(target_brain)} did not return a verified answer in time. "
                 "I did not complete, open, delete, move, or generate anything. Please try again, or narrow the request."
             )
 
         return (
-            f"{target_brain.capitalize()} V1 did not answer in time. "
+            f"{self._brain_display_name(target_brain)} did not answer in time. "
             "The app stayed responsive, but the local model call timed out before producing usable text."
         )
 
@@ -1056,12 +1141,13 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         agentic_mode_requested=False
     ):
         try:
-            if target_brain == "orchestrator" and (self.model_worker_process is None or self.model_worker_process.poll() is not None):
-                self._evict_and_load("orchestrator")
+            worker = getattr(self, "model_worker_process", None)
+            if target_brain in {"orchestrator", "kira"} and (worker is None or worker.poll() is not None):
+                self._evict_and_load(target_brain)
 
             memory_context = self._smart_memory_context(raw_prompt, chat_id, max_chars=1700)
             recovery_instruction = (
-                "YOU ARE ORCHESTRATOR V1.\n"
+                f"YOU ARE {self._brain_display_name(target_brain).upper()}.\n"
                 "Answer directly in a natural human tone. Do not emit or mention backend pathways, "
                 "tool calls, tool tags, slash commands, shell commands, private reasoning, or hidden plans.\n"
                 "For fact checks, give a clear verdict and the short reason. Do not say only Done/Completed.\n"
@@ -1701,6 +1787,8 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             "scan", "inspect", "check", "find", "automate", "schedule", "later",
             "after "
         ]
+        if getattr(self, "current_brain", "") == "kira":
+            markers.extend(("send", "email", "book", "payment"))
         scheduled_delay = bool(re.search(r"\bin\s+\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\b", text))
         return (
             mode_text in {"agent", "agentic", "agentic_rag", "agentic task chat"}
@@ -1733,7 +1821,15 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             "created", "opened", "closed", "ran", "executed", "pasted",
             "installed", "connected", "scheduled", "ready for review"
         ]
-        return any(claim in lowered for claim in claims)
+        if any(claim in lowered for claim in claims):
+            return True
+        if getattr(self, "current_brain", "") != "kira":
+            return False
+        return any(
+            re.search(r"\b(?:sent|booked|paid|delivered)\b", clause)
+            and not re.search(r"\b(?:not|no|cannot|can't|haven't|hasn't)\b", clause)
+            for clause in re.split(r"[.!?;\n]", lowered)
+        )
 
     def _enforce_execution_truth(self, raw_prompt, answer, ledger_id, chat_id):
         if not ledger_id or not self._prompt_requires_execution_truth(raw_prompt):
@@ -2065,9 +2161,11 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         )
         council_enabled = bool(council_decision.get("enabled"))
 
-        # KIRA OS is Orchestrator-only until Kira V1 is retrained and re-enabled.
-        # This keeps stale UI/API calls from accidentally loading the older model.
-        target_brain = "orchestrator"
+        # Honor the user's model selection in THE TREE too. The backend, not
+        # either model, still owns tool validation, permissions, and evidence.
+        target_brain = self._select_brain_for_mode(mode, selected_model)
+        if target_brain == "kira":
+            council_enabled = False
 
         agentic_mode_requested = (
             base_agentic_requested
@@ -2076,17 +2174,20 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         if self._prompt_requires_execution_truth(task_prompt, mode):
             ledger_id = self._start_execution_ledger(chat_id, task_prompt)
 
-        if self._is_simple_chat_prompt(task_prompt, mode, needs_agentic_pathway):
+        if (
+            target_brain != "kira"
+            and self._is_simple_chat_prompt(task_prompt, mode, needs_agentic_pathway)
+        ):
             display_response = self._fast_simple_chat_response(task_prompt, target_brain)
             self.session_memory.append({"role": "user", "content": raw_prompt})
             self.session_memory.append({"role": "model", "content": display_response})
             self.session_memory = self.session_memory[-8:]
             self._append_chat_message(chat_id, "user", user_chat_prompt, "User")
-            self._append_chat_message(chat_id, "assistant", display_response, f"{target_brain.capitalize()} V1")
+            self._append_chat_message(chat_id, "assistant", display_response, self._brain_display_name(target_brain))
             self.response_queue.put({
                 "type": "message",
                 "content": display_response,
-                "model_used": f"{target_brain.capitalize()} V1",
+                "model_used": self._brain_display_name(target_brain),
                 "chat_id": chat_id
             })
             self._maybe_update_personalization_rag(force=False)
@@ -2161,11 +2262,13 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                     if direct_answer_mode else self._build_system_instruction(target_brain)
                 )
             )
+            if target_brain == "kira" and base_agentic_requested:
+                system_instruction += tree_execution_instruction()
             personalization_context = ""
-            if target_brain == "orchestrator":
+            if target_brain in {"orchestrator", "kira"}:
                 if not focused_artifact:
                     personalization_context = self._compact_personalization_context(task_prompt)
-                if needs_agentic_pathway:
+                if needs_agentic_pathway and (target_brain != "kira" or not tools_disallowed(task_prompt)):
                     agentic_preflight_context = self._try_agentic_preflight_context(task_prompt, chat_id)
                     if agentic_preflight_context:
                         original_preflight_chars = len(agentic_preflight_context)
@@ -2185,9 +2288,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                             ledger_id=ledger_id
                         )
 
-            messages = [] if focused_artifact else [{
-                "role": "user",
-                "content": (
+            runtime_context = "" if focused_artifact else (
                     system_instruction
                     + personalization_context
                     + self._smart_memory_context(task_prompt, chat_id)
@@ -2197,10 +2298,10 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                         if agentic_preflight_context
                         else ""
                     )
-                    + "\n\nCurrent task:\n"
-                    + task_prompt
-                )
-            }]
+            )
+            messages = [] if focused_artifact else [{"role": "user", "content": runtime_context + "\n\nCurrent task:\n" + task_prompt}]
+            if target_brain == "kira" and not focused_artifact:
+                messages = [{"role": "system", "content": runtime_context}, {"role": "user", "content": task_prompt}]
 
             if focused_artifact:
                 # The artifact author already selects and executes a bounded tool
@@ -2252,9 +2353,17 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 or self._extract_agentic_blocks(public_answer)
             )
             force_agentic_pathway = bool(needs_agentic_pathway)
+            kira_tree_requested = bool(
+                target_brain == "kira" and base_agentic_requested and (
+                    needs_agentic_pathway
+                    or model_selected_actions
+                    or self._should_request_agentic_pathway(task_prompt, public_answer)
+                )
+            )
             should_run_agentic_loop = bool(
-                target_brain == "orchestrator"
-                and (model_selected_actions or force_agentic_pathway or council_enabled)
+                (target_brain == "orchestrator" or kira_tree_requested)
+                and (model_selected_actions or force_agentic_pathway or council_enabled or kira_tree_requested)
+                and (target_brain != "kira" or not tools_disallowed(task_prompt))
             )
 
             if should_run_agentic_loop:
@@ -2267,7 +2376,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                         personalization_context,
                         chat_id,
                         council_enabled=council_enabled,
-                        force_pathway=force_agentic_pathway
+                        force_pathway=force_agentic_pathway or kira_tree_requested
                     )
                 public_answer = self._ensure_requested_artifact_or_real_open(
                     task_prompt,
@@ -2300,7 +2409,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                         target_brain=target_brain,
                         agentic_mode_requested=agentic_mode_requested
                     )
-            elif target_brain == "orchestrator":
+            elif target_brain in {"orchestrator", "kira"}:
                 public_answer = self._strip_private_reasoning(public_answer)
                 public_answer = self._strip_agentic_blocks(public_answer)
                 public_answer = self._enforce_execution_truth(task_prompt, public_answer, ledger_id, chat_id)
@@ -2339,6 +2448,15 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             # The final UI boundary is deliberately redundant: malformed or
             # unclosed thought tags must never reach chat history or the UI.
             display_response = self._strip_private_reasoning(display_response).strip()
+            if target_brain == "kira":
+                observed_files = any(
+                    item.get("action") in {"read_file", "list_dir", "search_files", "find_in_computer"}
+                    and item.get("status") in {"executed", "verified"}
+                    for item in self._ledger_actions(ledger_id)
+                ) if ledger_id else False
+                display_response = guard_public_reply(
+                    task_prompt, display_response, observed_local_files=observed_files
+                )
             if (
                 self._is_effectively_empty_model_text(display_response)
                 or self._is_internal_pathway_leak(display_response)
@@ -2358,13 +2476,13 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             self.session_memory = self.session_memory[-8:]
 
             self._append_chat_message(chat_id, "user", user_chat_prompt, "User")
-            self._append_chat_message(chat_id, "assistant", display_response, f"{target_brain.capitalize()} V1")
+            self._append_chat_message(chat_id, "assistant", display_response, self._brain_display_name(target_brain))
             self._maybe_update_personalization_rag(force=False)
 
             self.response_queue.put({
                 "type": "message",
                 "content": display_response,
-                "model_used": f"{target_brain.capitalize()} V1",
+                "model_used": self._brain_display_name(target_brain),
                 "chat_id": chat_id
             })
 
@@ -2377,11 +2495,11 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             if locals().get("target_brain", "") == "kira":
                 display_response = self._kira_v1_unavailable_fallback(raw_prompt, str(e))
                 self._append_chat_message(chat_id, "user", user_chat_prompt, "User")
-                self._append_chat_message(chat_id, "assistant", display_response, "Kira V1")
+                self._append_chat_message(chat_id, "assistant", display_response, self._brain_display_name("kira"))
                 self.response_queue.put({
                     "type": "message",
                     "content": display_response,
-                    "model_used": "Kira V1",
+                    "model_used": self._brain_display_name("kira"),
                     "chat_id": chat_id
                 })
                 return
@@ -2408,10 +2526,10 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         if "clean code" in prompt:
             answer = "One benefit of clean code is that it makes software easier to understand, debug, and safely improve over time."
         elif any(word in prompt for word in ["hi", "hello", "hey"]):
-            answer = "Hi, I’m Kira V1. I’m here and ready to help."
+            answer = f"Hi, I’m {self._brain_display_name('kira')}. I’m here and ready to help."
         else:
             answer = (
-                "Kira V1 did not load into VRAM fast enough on this run, so I kept the app responsive instead of crashing. "
+                f"{self._brain_display_name('kira')} did not load into VRAM fast enough on this run, so I kept the app responsive instead of crashing. "
                 "Try the same prompt again after closing other memory-heavy apps, or use Orchestrator V1 for this turn."
             )
         self._log_agentic_event("kira_v1_load_fallback", {
@@ -2559,6 +2677,17 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             return str(self._model_worker_request(retry_request, timeout=timeout) or "")
 
     def _tokenizer_prompt(self, messages):
+        if (
+            getattr(self, "current_brain", "") == "kira"
+        ):
+            body = ""
+            for message in messages or []:
+                role = str(message.get("role", "user")).lower()
+                role = "assistant" if role in ["assistant", "model"] else role
+                if role not in {"system", "user", "assistant"}:
+                    role = "user"
+                body += f"<|im_start|>{role}\n{message.get('content', '')}<|im_end|>\n"
+            return body + "<|im_start|>assistant\n<think>\n\n</think>\n\n"
         body = "<bos>"
         for message in messages or []:
             role = str(message.get("role", "user")).lower()
@@ -3015,7 +3144,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             )
             self.response_queue.put({
                 "type": "status",
-                "content": f"Orchestrator V1 is executing agentic step {step + 1}...",
+                "content": f"{self._brain_display_name(getattr(self, 'current_brain', 'orchestrator'))} is executing agentic step {step + 1}...",
                 "chat_id": chat_id
             })
 
@@ -3310,7 +3439,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
 
         self.response_queue.put({
             "type": "status",
-            "content": "Orchestrator V1 is choosing the right pathway...",
+            "content": f"{self._brain_display_name(getattr(self, 'current_brain', 'orchestrator'))} is choosing the right pathway...",
             "chat_id": chat_id
         })
 
@@ -3332,6 +3461,8 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             "- For delayed/background work, choose SCHEDULE_TASK.\n"
             "- Never reveal thought_process or private labels.\n"
         )
+        if getattr(self, "current_brain", "") == "kira":
+            planner_instruction = live_text_system_instruction() + tree_execution_instruction() + personalization_context
 
         messages = [{
             "role": "user",
@@ -3345,7 +3476,15 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             )
         }]
 
-        prompt = self._tokenizer_prompt(messages) + "<thought_process>\n"
+        if getattr(self, "current_brain", "") == "kira":
+            messages = [
+                {"role": "system", "content": planner_instruction},
+                {"role": "user", "content": str(raw_prompt or "") + "\nCurrent public output: " + self._truncate(str(current_output or ""), 1200)},
+            ]
+
+        prompt = self._tokenizer_prompt(messages)
+        if getattr(self, "current_brain", "") != "kira":
+            prompt += "<thought_process>\n"
         response = self._generate_with_watchdog(
             prompt,
             temperature=0.5,
@@ -3397,10 +3536,17 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         timeout_seconds = int(getattr(self, "agentic_step_timeout_seconds", 38))
 
         def run_bridge():
+            scope_token = None
+            if step_number == "native_live_tree":
+                from kira_live.tree_scope import live_tree_scope
+                scope_token = live_tree_scope.set(True)
             try:
                 result = self._run_agentic_capabilities(current_output, raw_prompt, chat_id)
             except Exception as e:
                 result = f"AGENTIC STEP ERROR: {e}"
+            finally:
+                if scope_token is not None:
+                    live_tree_scope.reset(scope_token)
 
             try:
                 result_queue.put_nowait(result)
@@ -3450,7 +3596,10 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         completed_steps,
         council_enabled=False
     ):
-        memory_context = self._smart_memory_context(raw_prompt, chat_id, max_chars=1900)
+        is_kira = getattr(self, "current_brain", "") == "kira"
+        memory_context = self._smart_memory_context(raw_prompt, chat_id, max_chars=600 if is_kira else 1900)
+        if is_kira and len(agentic_transcript) > 4000:
+            agentic_transcript = agentic_transcript[:1000] + "\n[Earlier branch text compacted; backend ledger retained.]\n" + agentic_transcript[-3000:]
         instruction = (
             system_instruction
             + personalization_context
@@ -3477,6 +3626,11 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 + "\n\nContinue the task. Either emit the next needed bridge/tool block, or provide the final user-facing answer."
             )
         }]
+        if is_kira:
+            messages = [
+                {"role": "system", "content": instruction + memory_context},
+                {"role": "user", "content": str(raw_prompt or "") + "\n\nBackend transcript (failed or pending actions are not complete):\n" + agentic_transcript},
+            ]
 
         if council_enabled:
             return self._run_orchestrator_council_step(
@@ -3488,7 +3642,9 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 phase=f"continuation_after_step_{completed_steps}"
             )
 
-        prompt = self._tokenizer_prompt(messages) + "<thought_process>\n"
+        prompt = self._tokenizer_prompt(messages)
+        if getattr(self, "current_brain", "") != "kira":
+            prompt += "<thought_process>\n"
         return self._generate_with_watchdog(
             prompt,
             temperature=0.5,
@@ -3787,7 +3943,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         personalization_context,
         chat_id
     ):
-        if self.current_brain != "orchestrator":
+        if self.current_brain not in {"orchestrator", "kira"}:
             return current_answer
 
         answer_text = str(current_answer or "").strip()
@@ -3809,12 +3965,12 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
 
         self.response_queue.put({
             "type": "status",
-            "content": "Orchestrator V1 is turning the read-only findings into an answer...",
+            "content": ("Orchestrator V1 is turning the read-only findings into an answer..." if self.current_brain == "orchestrator" else "KIRA Live 1 is turning the findings into an answer..."),
             "chat_id": chat_id
         })
 
         synthesis_instruction = (
-            "You are Orchestrator V1. Answer the current user task using the supplied evidence.\nSYNTHESIS MODE:\n"
+            f"You are {self._brain_display_name(self.current_brain)}. Answer the current user task using the supplied evidence.\nSYNTHESIS MODE:\n"
             "- KIRA OS attempted the tool/file work shown below. Only results explicitly marked verified or backed by a real generated artifact are complete.\n"
             "- Never claim success for SPECIALIST_RESULT blocks marked failed, needs_repair, or unknown. Explain the blocker briefly instead.\n"
             "- Do not emit new tool blocks, shell commands, slash commands, or raw terminal dumps.\n"
@@ -3843,6 +3999,11 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 + "\nProvide the answer, not a list of search leads or a promise to answer later."
             )
         }]
+        if self.current_brain == "kira":
+            messages = [
+                {"role": "system", "content": synthesis_instruction + memory_context},
+                {"role": "user", "content": str(raw_prompt or "") + "\n\nBackend findings:\n" + compact_findings},
+            ]
 
         try:
             prompt = self._tokenizer_prompt(messages)
@@ -3917,10 +4078,11 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             ).strip()
 
         if "branch_registry:" in lower:
+            planner = "KIRA Live 1" if getattr(self, "current_brain", "") == "kira" else "Orchestrator"
             return (
                 "I inspected THE TREE. The improved architecture is a hidden execution tree: "
-                "Orchestrator chooses a branch, KIRA executes it in the right sandbox, evidence returns, "
-                "and only then does Orchestrator answer. The important branches are evidence, observe, "
+                f"{planner} chooses a branch, KIRA executes it in the right sandbox, evidence returns, "
+                f"and only then does {planner} answer. The important branches are evidence, observe, "
                 "research, media, artifact, architect, automation, live/voice, subagents, verification, and mutation."
             )
 
@@ -4593,19 +4755,7 @@ Slash suggestions: {self.slash_suggestions_path}
 
     def _build_system_instruction(self, target_brain):
         if target_brain != "orchestrator":
-            return """YOU ARE KIRA V1.
-
-- Your name is Kira V1.
-- Never call yourself Gemma, Google, or a generic language model.
-- Be warm, sharp, practical, and human-like.
-- For non-trivial requests, silently use Tree-of-Thought reasoning: consider multiple paths, choose the strongest, then answer.
-- Never reveal hidden chain-of-thought, hidden branches, or internal scoring. If reasoning is useful, show only a short public summary.
-- Give the direct answer first. Keep simple answers concise and complex answers complete.
-- Use personalization/RAG only when it is directly relevant to the user's current request. Ignore it for unrelated answers.
-- For coding, provide clean working code, the likely cause, and only the explanation that matters.
-- Separate facts from speculation. Be careful with medical, legal, financial, security, destructive, or privacy-sensitive topics.
-- Avoid robotic filler and generic endings.
-"""
+            return live_text_system_instruction()
 
         return self._build_orchestrator_operator_instruction()
 
@@ -5372,7 +5522,18 @@ PUBLIC STYLE:
         except Exception as exc:
             return {"ok": False, "reason": str(exc)}
 
-    def _append_chat_message(self, chat_id, role, content, model):
+    def _append_chat_message(self, chat_id, role, content, model, *, memory_synced=False):
+        lock = getattr(self, "chat_history_lock", None)
+        if lock is None:
+            return self._append_chat_message_unlocked(
+                chat_id, role, content, model, memory_synced=memory_synced
+            )
+        with lock:
+            return self._append_chat_message_unlocked(
+                chat_id, role, content, model, memory_synced=memory_synced
+            )
+
+    def _append_chat_message_unlocked(self, chat_id, role, content, model, *, memory_synced=False):
         if not chat_id:
             return
 
@@ -5391,6 +5552,7 @@ PUBLIC STYLE:
             "content": content,
             "model": model,
             "model_used": model,
+            "memory_synced": bool(memory_synced),
             "created_at": time.time(),
             "created_label": self._format_timestamp(time.time())
         })
@@ -6507,6 +6669,19 @@ class LazyKiraAPI:
             "native_live_active": False
         })
 
+    def get_kira_live_status(self):
+        return self._call("get_kira_live_status", wait=False, default={
+            "ok": False,
+            "ui_ready": True,
+            "conversation_ready": False,
+            "state": "starting",
+            "name": "KIRA Live 1",
+            "checks": [],
+            "blockers": ["Backend is starting."],
+            "prompt_handoffs": False,
+            "private_reasoning_visible": False,
+        })
+
     def start_live_voice(self, chat_id=None):
         return self._call("start_live_voice", chat_id, wait=False, default={
             "ok": False,
@@ -6516,6 +6691,12 @@ class LazyKiraAPI:
 
     def stop_live_voice(self):
         return self._call("stop_live_voice", wait=False, default={"ok": True, "status": "stopping"})
+
+    def set_live_microphone_muted(self, muted=False):
+        return self._call("set_live_microphone_muted", muted, wait=False, default={"ok": False, "error": "Backend is starting."})
+
+    def interrupt_live_response(self):
+        return self._call("interrupt_live_response", wait=False, default={"ok": False, "error": "Backend is starting."})
 
     def set_voice_test_mode(self, enabled=True):
         return self._call("set_voice_test_mode", enabled, wait=False, default={

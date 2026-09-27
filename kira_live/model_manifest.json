@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "project": "KIRA Live 1",
+  "status": "available",
+  "composition": {
+    "runtime_graph": "one_model_three_weight_islands",
+    "text_prompt_handoff": false,
+    "listener_to_thinker": "shared_semantic_token_bus_with_direct_acoustic_emotion_features",
+    "thinker_to_talker": "shared_qwen_public_token_bus_and_direct_acoustic_prosody_control",
+    "shared_ngram_domains": ["listener_units", "thinker_tokens", "talker_codes"],
+    "shared_ngram_orders": [2, 3, 4],
+    "token_expert_routing": "thinker_only_top_2_per_family",
+    "thinker_expert_budgets": {
+      "emotion_social": 0.25,
+      "agentic_action": 0.4,
+      "general_token_reasoning": 0.35
+    },
+    "moe_scope": "thinker_only",
+    "listener_routing": "continuous_acoustic_2_3_4_gram_state_no_moe",
+    "talker_routing": "instruction_conditioned_12hz_codec_generation_no_moe",
+    "barge_in": "speech_onset_cancels_thinker_tokens_and_talker_playback",
+    "transcript_role": "auxiliary_observable_only"
+  },
+  "execution_status": {
+    "strict_hidden_state_runtime_contract": "legacy_bridge_retired_after_spoken_quality_gate",
+    "all_three_pinned_weight_sets": "downloaded_and_validated",
+    "mlx_composite_bridge": "metal_verified_legacy_not_active",
+    "mlx_talker_real_weights": "official_qwen3_tts_1.7b_customvoice_bf16_28_layers_verified",
+    "listener_real_weight_bridge": "integrated_and_verified_all_611_tensors_semantic_decode",
+    "thinker_real_weight_bridge": "integrated_and_verified",
+    "real_thinker_to_talker_graph": "shared_token_and_prosody_bus_verified_without_model_prompt_handoff",
+    "real_three_island_graph": "metal_verified_without_prompt_handoff",
+    "thinker_only_moe": "layers_9_24_rank_128_metal_verified_identity_initialized",
+    "duplex_barge_in_control": "wired_to_native_microphone_and_unit_verified_hardware_followup_needed",
+    "chat_memory_bridge": "typed_and_spoken_turns_synced_by_chat_id_with_idempotent_import",
+    "live_emotion_model": "trained_accepted_and_coreml_parity_verified",
+    "listener_thinker_semantic_bridge": "shared_token_bus_real_weight_verified",
+    "thinker_ple_moe_checkpoint": "trained_and_accepted",
+    "thinker_talker_alignment": "official_shared_token_and_prosody_bus_verified",
+    "talker_code_predictor": "16_groups_integrated_and_metal_verified",
+    "codec_waveform_decoder": "official_streaming_decoder_integrated_and_verified",
+    "native_live_session": "integrated_and_verified",
+    "voice_ui": "daily_driver_model_selector_and_native_live_surface_enabled"
+  },
+  "training_status": {
+    "promoted_adapter": null,
+    "latest_experiment": "kira_qwen35_agentic_stage1_stable",
+    "latest_decision": "rejected_by_heldout_generation_gate",
+    "reason": "preserved JSON validity but did not improve exact tool arguments or workflow safety fields",
+    "live_emotion_stage1": {
+      "decision": "accepted_by_speaker_disjoint_emotion_slice_gate",
+      "checkpoint": "training_runs/kira_live_emotion_v1/emotion_ngram_head.safetensors",
+      "coreml_package": "training_runs/kira_live_emotion_v1/KiraLiveEmotionVerified.mlpackage",
+      "coreml_max_logits_error": 0.00407,
+      "coreml_max_prosody_error": 0.002033,
+      "validation_macro_accuracy": 0.7673009871416195,
+      "test_macro_accuracy": 0.7402445883150782,
+      "validation_minimum_class_accuracy": 0.625,
+      "test_minimum_class_accuracy": 0.6104417670682731,
+      "validation_calm_accuracy": 0.8928571428571429,
+      "test_calm_accuracy": 0.8035714285714286,
+      "validation_surprised_accuracy": 0.8181818181818182,
+      "test_surprised_accuracy": 0.7045454545454546,
+      "dataset_examples": 9759,
+      "reason": "accepted after real CREMA-D and RAVDESS augmentation; all eight unseen-speaker slices cleared the gate"
+    },
+    "live_semantic_bridge": {
+      "decision": "accepted",
+      "checkpoint": "training_runs/kira_live_listener_bridge_v3/listener_bridge.safetensors",
+      "selected_epoch": 4,
+      "full_listener_tensors": 611,
+      "validation_mean_frame_cosine": 0.6882703841610728,
+      "validation_minimum_example_cosine": 0.23456327617168427,
+      "test_mean_frame_cosine": 0.6786726959076993,
+      "test_minimum_example_cosine": 0.20784048736095428,
+      "validation_examples": 543,
+      "test_examples": 546,
+      "transcript_prompt_handoff": false,
+      "reason": "accepted on untouched speaker-disjoint LibriSpeech validation and test splits"
+    },
+    "thinker_ple_moe": {
+      "decision": "accepted",
+      "checkpoint": "training_runs/kira_live_thinker_addons_v1/thinker_addons.safetensors",
+      "selected_step": 400,
+      "steps_executed": 500,
+      "validation_loss": 0.5975435674190521,
+      "generation_benchmark": "training_runs/kira_live_thinker_addons_v1/generation_benchmark.json",
+      "heldout_cases": 10,
+      "privacy_pass_rate": 1.0,
+      "reason": "accepted after held-out donor race improved exact tool arguments, permissions, false-completion handling, and workflow state without regression"
+    },
+    "thinker_to_talker_bridge": {
+      "decision": "superseded_by_official_shared_token_bus",
+      "checkpoint": "training_runs/kira_live_talker_bridge_v1/talker_bridge.safetensors",
+      "strict_complete_checkpoint": false,
+      "validation_mean_token_cosine": 0.9262525923550129,
+      "validation_minimum_example_cosine": 0.7946035861968994,
+      "test_mean_token_cosine": 0.9024971127510071,
+      "test_minimum_example_cosine": 0.7723848223686218,
+      "prompt_handoff": false,
+      "reason": "retained for reproducibility but removed from live inference because the hand-written hidden projection caused unstable speech"
+    },
+    "talker_speaker_conditioning": {
+      "decision": "accepted",
+      "checkpoint": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16@52f4770f",
+      "reference_mode": "official_customvoice_aiden_with_direct_emotion_instruction",
+      "loopback_phrase": "Hello, this is Kira. I can hear you clearly, and my voice is steady and natural.",
+      "loopback_wer": 0.0,
+      "streaming_chunks": 11,
+      "first_audio_seconds": 1.0589352079996388,
+      "audio": "training_runs/kira_live_customvoice_v2/kira_integrated_voice.wav",
+      "verification": "training_runs/kira_live_customvoice_v2/verification.json",
+      "reason": "the instruction-capable official Talker replaces the unstable hand-written decoder; the frozen Listener recovered the complete test sentence"
+    }
+  },
+  "models": {
+    "thinker": {
+      "id": "Qwen/Qwen3.5-0.8B",
+      "revision": "2fc06364715b967f1860aea9cf38778875588b17",
+      "runtime": "mlx-vlm",
+      "trainable_components": ["multi_order_ngram_ple", "ten_expert_top2_moe", "persistent_memory_fusion", "emotion_adapter", "audio_projector"],
+      "frozen_components": ["base_backbone_initially"]
+    },
+    "listener": {
+      "id": "Qwen/Qwen3-ASR-0.6B-hf",
+      "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c",
+      "runtime": "coreml_or_mlx",
+      "activation": "voiced_segments_only"
+    },
+    "talker": {
+      "id": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16",
+      "revision": "52f4770fd9726457eae3d3b6aa92047a25a10776",
+      "runtime": "mlx",
+      "codec_rate_hz": 12,
+      "activation": "streaming_response_audio",
+      "speaker": "Aiden",
+      "emotion_control": "direct_listener_prosody_to_talker_instruction"
+    },
+    "vad": {
+      "id": "TEN-framework/ten-vad",
+      "runtime": "coreml",
+      "activation": "always_on"
+    },
+    "emotion_encoder": {
+      "id": "kira-live/acoustic-emotion-small",
+      "runtime": "coreml",
+      "activation": "voiced_windows",
+      "outputs": ["neutral", "joy", "sadness", "anger", "fear", "surprise", "valence", "arousal", "confidence"]
+    }
+  },
+  "memory": {
+    "exact_chat_event_log": "local_sqlite_append_only",
+    "raw_audio_persisted": false,
+    "retrieval": "recent_exact_plus_relevant_episodes_plus_workflow_ledger",
+    "recurrent_slots": 256,
+    "fusion_layers": [4, 8, 12, 16, 20, 24],
+    "workflow_event_training_lengths": [128, 256, 512, 1024]
+  },
+  "parameter_budget": {
+    "hard_cap": 4000000000,
+    "estimated_total": 3888542430,
+    "estimated_headroom": 111457570,
+    "counting_basis": "deployed local safetensors headers; CoreML emotion export is the same head, not an extra model",
+    "listener": 782426112,
+    "thinker": 873438784,
+    "thinker_addons": 143295634,
+    "talker": 1916676352,
+    "talker_codec": 170557441,
+    "emotion_head": 2148107
+  },
+  "privacy": {
+    "local_only": true,
+    "raw_audio_persisted": false,
+    "emotion_is_soft_context": true
+  }
+}

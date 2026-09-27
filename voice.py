@@ -7,6 +7,7 @@ import shutil
 import threading
 import time
 from collections import deque
+from kira_live.public_guard import tools_disallowed
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -693,6 +694,41 @@ def interrupt_speaking(reason="barge_in"):
 
 
 class KiraVoiceMixin:
+    def _release_text_worker_for_live(self):
+        """Avoid keeping a second full Thinker/Orchestrator resident with Live."""
+        if getattr(self, "model_worker_process", None) is None:
+            return
+        lock = getattr(self, "model_worker_io_lock", None)
+        if lock is not None and not lock.acquire(blocking=False):
+            raise RuntimeError("A text answer is still running. Try Live after it finishes.")
+        try:
+            self._stop_model_worker()
+            self.active_model = None
+            self.active_tokenizer = None
+            self.current_brain = None
+        finally:
+            if lock is not None:
+                lock.release()
+
+    def get_kira_live_status(self):
+        try:
+            from kira_live.readiness import kira_live_readiness
+
+            return kira_live_readiness()
+        except Exception as exc:
+            return {
+                "ok": False,
+                "ui_ready": True,
+                "conversation_ready": False,
+                "state": "error",
+                "name": "KIRA Live 1",
+                "architecture": "one_model_three_weight_islands",
+                "prompt_handoffs": False,
+                "private_reasoning_visible": False,
+                "checks": [],
+                "blockers": [str(exc)],
+            }
+
     def configure_voice_stack(self, stt_provider=None, turn_detector=None, tts_provider=None, live_mode=None):
         changes = {}
         if stt_provider:
@@ -786,8 +822,109 @@ class KiraVoiceMixin:
             "status": "silent_test_enabled" if enabled else "audio_enabled"
         }
 
+    def _live_tree_requested(self, text):
+        if tools_disallowed(text):
+            return False
+        scoped = bool(re.search(
+            r"\b(?:tree|desktop|downloads|folder|files|directory|web|internet|apps|applications|processes|ram|computer|delete|move|schedule|send|book|pdf|slides|presentation|document|spreadsheet|code|project|terminal|shell|python|clipboard|archive|zip|calendar|reminder|blender|mcp)\b|(?:^|\s)(?:~/|/Users/|/tmp/)|^(?:open|close|launch|quit)\b",
+            str(text or ""), re.I,
+        ))
+        return scoped and self._should_request_agentic_pathway(text)
+
+    def _execute_live_tree_output(self, model_output, user_request, chat_id):
+        """Run Tree branches without starting another LLM worker for Live."""
+        if tools_disallowed(user_request):
+            return "BLOCKED SAFELY: The user requested no tools. Nothing was executed."
+        blocks = self._extract_agentic_blocks(model_output)
+        if not blocks:
+            blocks = self._build_deterministic_agentic_blocks(user_request, "", chat_id, kira_live=True)
+        # The shared extractor recognizes the normal Agent-mode tool catalog.
+        # Dispatch remains permissioned/sandboxed; Live must not bypass it.
+        if not blocks:
+            return "BLOCKED SAFELY: No supported live Tree branch was selected. Use Agent mode for the advanced task; nothing was executed."
+        self._emit_agent_progress(chat_id, "executing", "KIRA Live 1 is running a Tree branch", 35, self._agentic_branch_labels_from_text(blocks))
+        result = self._run_agentic_capabilities_with_watchdog(blocks, user_request, chat_id, "native_live_tree")
+        self._record_text_execution_evidence(result, chat_id=chat_id)
+        self._emit_agent_progress(chat_id, "done", "Live Tree branch returned evidence", 100, [])
+        return result
+
     def start_live_voice(self, chat_id=None):
-        return {"ok": False, "error": "Live voice was replaced by prompt dictation."}
+        status = self.get_kira_live_status()
+        if not status.get("conversation_ready"):
+            return {
+                "ok": False,
+                "status": "not_ready",
+                "error": "KIRA Live 1 is not end-to-end ready. No fallback voice stack was started.",
+                "readiness": status,
+                "chat_id": chat_id,
+            }
+        existing = getattr(self, "_live_voice_session", None)
+        if existing is not None and getattr(existing, "running", False):
+            if chat_id and existing.chat_id != str(chat_id):
+                self.stop_live_voice()
+            else:
+                return {"ok": True, "already_running": True, "session": existing.status(), "chat_id": existing.chat_id}
+        chat_id = str(chat_id or self.new_chat()["id"])
+        try:
+            self._release_text_worker_for_live()
+            from kira_live.native_session import KiraNativeLiveSession
+
+            def on_event(kind, payload):
+                spoken = str(payload.get("text", "") or "").strip()
+                if spoken and kind in {"TRANSCRIPT", "RESPONSE_FINISHED"}:
+                    try:
+                        self._append_chat_message(
+                            chat_id,
+                            "user" if kind == "TRANSCRIPT" else "assistant",
+                            spoken,
+                            "User" if kind == "TRANSCRIPT" else "KIRA Live 1",
+                            memory_synced=True,
+                        )
+                    except Exception as exc:
+                        self._record_stts_event(
+                            "MEMORY_BRIDGE_WARNING", str(exc),
+                            {"source": "kira_live_native"},
+                        )
+                self._record_stts_event(
+                    kind,
+                    spoken,
+                    {"source": "kira_live_native", **dict(payload or {})},
+                )
+
+            session = KiraNativeLiveSession(
+                chat_id=str(chat_id or "kira-live"),
+                on_event=on_event,
+                history_loader=lambda: self._load_chat_messages(chat_id),
+                tree_request_detector=self._live_tree_requested,
+                tree_executor=lambda output, request: self._execute_live_tree_output(output, request, chat_id),
+            )
+            self._live_voice_session = session
+            session_status = session.start()
+            self.voice_mode_active = bool(session_status.get("running"))
+            return {
+                "ok": self.voice_mode_active,
+                "status": "listening" if self.voice_mode_active else "error",
+                "session": session_status,
+                "readiness": status,
+                "chat_id": chat_id,
+            }
+        except Exception as exc:
+            failed_session = getattr(self, "_live_voice_session", None)
+            if failed_session is not None:
+                try:
+                    failed_session.stop()
+                except Exception:
+                    pass
+            self._record_stts_event("LIVE_START_ERROR", str(exc), {"source": "kira_live_native"})
+            self._live_voice_session = None
+            self.voice_mode_active = False
+            return {
+                "ok": False,
+                "status": "runtime_error",
+                "error": str(exc),
+                "readiness": status,
+                "chat_id": chat_id,
+            }
 
     def _legacy_live_voice(self, chat_id=None):
         """Compatibility entry point for the ordinary local voice session."""
@@ -917,6 +1054,18 @@ class KiraVoiceMixin:
             {"source": "native", "session": session_status, "tts": tts_status},
         )
         return {"ok": True, "session": session_status, "tts": tts_status}
+
+    def set_live_microphone_muted(self, muted=False):
+        session = getattr(self, "_live_voice_session", None)
+        if session is None or not session.running:
+            return {"ok": False, "error": "No active KIRA Live session."}
+        return session.set_microphone_muted(bool(muted))
+
+    def interrupt_live_response(self):
+        session = getattr(self, "_live_voice_session", None)
+        if session is None or not session.running:
+            return {"ok": False, "error": "No active KIRA Live session."}
+        return session.interrupt_response()
 
     def record_voice_input(self, text, source="browser"):
         clean = _stts_text(text, limit=3000)

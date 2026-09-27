@@ -24,6 +24,7 @@ def install_stack(light=False):
         "install",
         "-U",
         "sounddevice",
+        "pywebrtc-audio==0.2.0",
         "kokoro-onnx",
         "onnxruntime",
         "mlx-whisper",

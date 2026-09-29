@@ -55,7 +55,7 @@ def main():
     shutil.copy2(ROOT/'docs/KIRA_LIVE_1_MODEL_CARD.md',stage/'README.md')
     shutil.copy2(ROOT/'scripts/run_kira_live_bundle.py',stage/'run_kira_live.py')
     requirements=[]
-    for name in ['mlx','mlx-lm','mlx-audio','transformers','numpy','sounddevice','soundfile','huggingface-hub','safetensors','ten-vad','scipy','pywebrtc-audio']:
+    for name in ['mlx','mlx-lm','mlx-audio','transformers','numpy','sounddevice','soundfile','huggingface-hub','safetensors','ten-vad','scipy','pywebrtc-audio','torch','coremltools']:
         requirements.append(f'{name}=={importlib.metadata.version(name)}')
     (stage/'requirements.txt').write_text('\n'.join(requirements)+'\n')
     (stage/'THIRD_PARTY_NOTICES.md').write_text('# Third-party notices\n\nQwen3.5 and Qwen3-ASR: Copyright Alibaba/Qwen contributors.\nQwen3-TTS MLX conversion: Qwen and MLX community contributors.\nAll three weight sources declare Apache-2.0. The license is included as LICENSE.\nOriginal publisher URLs and exact revisions are recorded in bundle_manifest.json.\nThese weights retain their original attribution; KIRA does not claim authorship of the donor weights.\nTEN-VAD is an installed dependency, not a rehosted weight asset; its own license applies.\n')

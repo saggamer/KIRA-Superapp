@@ -277,6 +277,29 @@ class PersistentWorkflowMemory:
                 lines.extend(packed[label])
         return "\n".join(lines)
 
+    def conversation_turns(self, chat_id: str, *, limit: int = 16, max_chars: int = 12_000) -> list[dict[str, str]]:
+        """Newest dialogue in chronological order, isolated to one chat.
+
+        Use real role boundaries rather than making past user requests part of
+        the system policy. Interrupted output is marked as potentially unheard.
+        """
+        with self._database() as db:
+            rows = db.execute(
+                "SELECT role, content, kind FROM events WHERE chat_id = ? "
+                "AND role IN ('user', 'assistant') ORDER BY sequence DESC LIMIT ?",
+                (chat_id, max(1, int(limit))),
+            ).fetchall()
+        turns, remaining = [], max(0, int(max_chars))
+        for row in rows:
+            content = row['content']
+            if row['kind'] == 'interrupted_response':
+                content += '\n[Playback was interrupted; the user may not have heard all of this.]'
+            if len(content) > remaining:
+                break  # Keep a contiguous recent suffix, not scattered turns.
+            turns.append({'role': row['role'], 'content': content})
+            remaining -= len(content)
+        return list(reversed(turns))
+
     def count(self, chat_id: str) -> int:
         with self._database() as db:
             return int(db.execute("SELECT COUNT(*) FROM events WHERE chat_id = ?", (chat_id,)).fetchone()[0])

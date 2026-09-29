@@ -10,6 +10,7 @@ embedding input.
 """
 
 from dataclasses import dataclass
+import os
 import threading
 from typing import Iterator, Sequence
 
@@ -22,6 +23,26 @@ from .response_prosody import response_style
 
 TALKER_MODEL_ID = "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16"
 TALKER_SPEAKER = "Aiden"
+
+
+def optimize_talker(model, bits: int) -> dict:
+    """Quantize only Talker linear layers in memory; never change the codec."""
+    if bits not in (0, 8):
+        raise ValueError('KIRA_LIVE_TALKER_BITS must be 0 (original BF16) or 8.')
+    count = 0
+    if bits:
+        import mlx.core as mx
+        import mlx.nn as nn
+        def eligible(_name, module):
+            nonlocal count
+            accepted = isinstance(module, nn.Linear) and module.weight.shape[-1] % 64 == 0
+            count += int(accepted)
+            return accepted
+        nn.quantize(model.talker, group_size=64, bits=bits, class_predicate=eligible)
+        mx.eval(model.talker.parameters())
+    return {'linear_bits': bits, 'group_size': 64 if bits else None,
+            'quantized_linear_layers': count, 'waveform_decoder_unchanged': True,
+            'original_weight_files_unchanged': True}
 
 
 @dataclass(frozen=True)
@@ -88,6 +109,8 @@ class KiraIntegratedQwenVoice:
         self.model_id = model_id
         self.revision = revision
         self.speaker = speaker
+        self.optimization = optimize_talker(self.model, int(os.environ.get('KIRA_LIVE_TALKER_BITS', '8')))
+        self.playback_prebuffer = 1 if self.optimization['linear_bits'] == 8 else 2
 
     @staticmethod
     def build_plan(

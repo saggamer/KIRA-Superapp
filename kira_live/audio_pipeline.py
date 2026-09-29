@@ -46,7 +46,12 @@ def overlap_audio(chunks, consume, cancelled, prebuffer=2):
                 break
     finally:
         finished.set()
-        worker.join(timeout=2 if cancelled.is_set() else 60)
+        # A long spoken reply must not be cut off by a fixed join timeout.
+        # Keep cancellation bounded, but drain healthy playback completely.
+        while worker.is_alive() and not cancelled.is_set():
+            worker.join(timeout=.05)
+        if worker.is_alive():
+            worker.join(timeout=2)
     if errors:
         raise errors[0]
     return count[0]

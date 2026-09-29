@@ -11,3 +11,5 @@ safetensors==0.8.0
 ten-vad==1.0.6.8
 scipy==1.18.1
 pywebrtc-audio==0.2.0
+torch==2.14.0
+coremltools==9.0

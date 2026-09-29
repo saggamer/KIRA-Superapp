@@ -25,14 +25,15 @@ if [[ -z "$PYTHON" ]]; then
 fi
 
 echo "[1/4] Creating the local Python environment"
-"$PYTHON" -m venv .venv
+RUNTIME="$HOME/.local/share/kira-superapp/runtime"
+"$PYTHON" -m venv "$RUNTIME"
 echo "[2/4] Installing KIRA dependencies"
-.venv/bin/python -m pip install --upgrade pip wheel
-.venv/bin/python -m pip install -r requirements.txt
+"$RUNTIME/bin/python" -m pip install --upgrade pip wheel
+"$RUNTIME/bin/python" -m pip install -r requirements.txt -r requirements-kira-live.txt
 echo "[3/4] Downloading Orchestrator V1 and Whisper"
-.venv/bin/python scripts/download_models.py
+"$RUNTIME/bin/python" scripts/download_models.py
 echo "[4/4] Verifying the installation"
-.venv/bin/python scripts/verify_install.py
+"$RUNTIME/bin/python" scripts/verify_install.py
 
 echo
 echo "KIRA Superapp is ready. Launch it with:"

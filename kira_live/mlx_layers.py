@@ -148,12 +148,14 @@ class ThinkerOnlyExpertMoE(nn.Module):
     FAMILY_INDICES = ((1, 8), (2, 3, 5, 6, 7, 9), (0, 4))
     FAMILY_BUDGETS = (0.25, 0.40, 0.35)
 
-    def __init__(self, hidden_size: int = 1024, rank: int = 128, emotion_dim: int = 8):
+    def __init__(self, hidden_size: int = 1024, rank: int = 128, emotion_dim: int = 8, profile: str = "legacy"):
         super().__init__()
+        from .expert_profiles import expert_layout
+        self.expert_ranks, self.family_budgets = expert_layout(rank, profile)
         self.router = nn.Linear(hidden_size, 10, bias=False)
         self.emotion_context = nn.Linear(emotion_dim, hidden_size, bias=False)
-        self.down = [nn.Linear(hidden_size, rank, bias=False) for _ in range(10)]
-        self.up = [nn.Linear(rank, hidden_size, bias=False) for _ in range(10)]
+        self.down = [nn.Linear(hidden_size, r, bias=False) for r in self.expert_ranks]
+        self.up = [nn.Linear(r, hidden_size, bias=False) for r in self.expert_ranks]
         # Identity surgery: adapters contribute exactly zero before training.
         for projection in self.up:
             projection.weight = mx.zeros_like(projection.weight)
@@ -168,7 +170,7 @@ class ThinkerOnlyExpertMoE(nn.Module):
             routed = routed + self.emotion_context(emotion_features)[:, None, :]
         logits = self.router(routed)
         delta = mx.zeros_like(hidden)
-        for indices, budget in zip(self.FAMILY_INDICES, self.FAMILY_BUDGETS):
+        for indices, budget in zip(self.FAMILY_INDICES, self.family_budgets):
             family_logits = mx.stack([logits[..., index] for index in indices], axis=-1)
             probabilities = mx.softmax(family_logits, axis=-1)
             top_k = min(2, len(indices))

@@ -825,6 +825,8 @@ class KiraVoiceMixin:
     def _live_tree_requested(self, text):
         if tools_disallowed(text):
             return False
+        if re.search(r'\b(?:search|look up|weather|forecast|latest|right now|current prices)\b|\bfind\b.*\b(?:best|spot|place|camping)\b', str(text or ''), re.I):
+            return True
         scoped = bool(re.search(
             r"\b(?:tree|desktop|downloads|folder|files|directory|web|internet|apps|applications|processes|ram|computer|delete|move|schedule|send|book|pdf|slides|presentation|document|spreadsheet|code|project|terminal|shell|python|clipboard|archive|zip|calendar|reminder|blender|mcp)\b|(?:^|\s)(?:~/|/Users/|/tmp/)|^(?:open|close|launch|quit)\b",
             str(text or ""), re.I,
@@ -838,17 +840,28 @@ class KiraVoiceMixin:
         blocks = self._extract_agentic_blocks(model_output)
         if not blocks:
             blocks = self._build_deterministic_agentic_blocks(user_request, "", chat_id, kira_live=True)
+        if not blocks and re.search(r'\b(?:search|look up|weather|forecast|latest|right now)\b|\bfind\b.*\bbest\b', user_request, re.I):
+            query = re.sub(r'[\[\]\r\n]', ' ', user_request)[:2000]
+            blocks = f'[WEB_SEARCH]\nQUERY: {query}\nVISIBLE: true\n[/WEB_SEARCH]'
         # The shared extractor recognizes the normal Agent-mode tool catalog.
         # Dispatch remains permissioned/sandboxed; Live must not bypass it.
         if not blocks:
             return "BLOCKED SAFELY: No supported live Tree branch was selected. Use Agent mode for the advanced task; nothing was executed."
         self._emit_agent_progress(chat_id, "executing", "KIRA Live 1 is running a Tree branch", 35, self._agentic_branch_labels_from_text(blocks))
         result = self._run_agentic_capabilities_with_watchdog(blocks, user_request, chat_id, "native_live_tree")
+        from kira_live.action_contracts import result_links, search_wants_open
+        links = result_links(result)
+        if links and search_wants_open(user_request, []):
+            target = links[0]
+            opened = self._run_agentic_capabilities_with_watchdog(
+                f'[WEB_OPEN]\nURL: {target}\n[/WEB_OPEN]', user_request, chat_id, 'native_live_tree',
+            )
+            result += '\n\n' + opened
         self._record_text_execution_evidence(result, chat_id=chat_id)
         self._emit_agent_progress(chat_id, "done", "Live Tree branch returned evidence", 100, [])
         return result
 
-    def start_live_voice(self, chat_id=None):
+    def start_live_voice(self, chat_id=None, language="English"):
         status = self.get_kira_live_status()
         if not status.get("conversation_ready"):
             return {
@@ -870,6 +883,10 @@ class KiraVoiceMixin:
             from kira_live.native_session import KiraNativeLiveSession
 
             def on_event(kind, payload):
+                if kind == 'AUDIO_LEVEL':
+                    # Meter updates belong in the UI, not the disk event log.
+                    self._emit_native_voice_event(kind, '', {'source': 'kira_live_native', **dict(payload or {})})
+                    return
                 spoken = str(payload.get("text", "") or "").strip()
                 if spoken and kind in {"TRANSCRIPT", "RESPONSE_FINISHED"}:
                     try:
@@ -897,6 +914,7 @@ class KiraVoiceMixin:
                 history_loader=lambda: self._load_chat_messages(chat_id),
                 tree_request_detector=self._live_tree_requested,
                 tree_executor=lambda output, request: self._execute_live_tree_output(output, request, chat_id),
+                language=language,
             )
             self._live_voice_session = session
             session_status = session.start()

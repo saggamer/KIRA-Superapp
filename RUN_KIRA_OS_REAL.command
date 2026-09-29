@@ -1,7 +1,8 @@
 #!/bin/zsh
 set -u
 cd "$(dirname "$0")"
-PYTHON="$PWD/.venv/bin/python"
+source "$PWD/scripts/kira_runtime.sh"
+PYTHON="$(kira_runtime_python)"
 
 echo "[KIRA Superapp] Launching..."
 echo "[KIRA Superapp] Runtime: $PYTHON"

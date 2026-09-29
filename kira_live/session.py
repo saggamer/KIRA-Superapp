@@ -131,6 +131,16 @@ class KiraLiveSession:
         self.state = LiveState.LISTENING
         return self._emit("response_finished")
 
+    def response_interrupted(self, text: str = "") -> LiveEvent:
+        if self.memory is not None and self.chat_id and str(text).strip():
+            self.memory.append(
+                self.chat_id, "assistant", str(text).strip(),
+                kind="interrupted_response", workflow_id=self.workflow_id,
+            )
+        # Do not overwrite LISTENING/TRANSCRIBING: barge-in already moved the
+        # controller to the user's new utterance.
+        return self._emit("response_interrupted")
+
     def stop(self) -> LiveEvent:
         self.state = LiveState.IDLE
         return self._emit("session_stopped")

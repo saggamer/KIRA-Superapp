@@ -6682,8 +6682,8 @@ class LazyKiraAPI:
             "private_reasoning_visible": False,
         })
 
-    def start_live_voice(self, chat_id=None):
-        return self._call("start_live_voice", chat_id, wait=False, default={
+    def start_live_voice(self, chat_id=None, language="English"):
+        return self._call("start_live_voice", chat_id, language, wait=False, default={
             "ok": False,
             "status": "starting",
             "chat_id": chat_id

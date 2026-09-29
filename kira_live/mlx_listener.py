@@ -166,7 +166,7 @@ class KiraMLXListener(nn.Module):
             rope_scaling=None,
         )
 
-    def _prompt_embeddings(self, acoustic_hidden: mx.array) -> mx.array:
+    def _prompt_embeddings(self, acoustic_hidden: mx.array, language: str | None = None) -> mx.array:
         if self.language_model is None or self.tokenizer is None:
             raise RuntimeError("Listener semantic decoder is not loaded.")
         # This is Qwen3-ASR's own multimodal protocol.  The acoustic states
@@ -174,6 +174,8 @@ class KiraMLXListener(nn.Module):
         # Thinker and no model-to-model text prompting occurs.
         prefix = [151644, 8948, 198, 151645, 198, 151644, 872, 198, 151669]
         suffix = [151670, 151645, 198, 151644, 77091, 198]
+        if language:
+            suffix += self.tokenizer.encode(f"language {language}<asr_text>", add_special_tokens=False)
         embed = self.language_model.model.embed_tokens
         prefix_hidden = embed(mx.array([prefix], dtype=mx.int32))
         suffix_hidden = embed(mx.array([suffix], dtype=mx.int32))
@@ -189,6 +191,7 @@ class KiraMLXListener(nn.Module):
         *,
         cancelled: threading.Event | None = None,
         max_tokens: int = 256,
+        language: str | None = None,
     ) -> ListenerSemanticOutput:
         """Decode with the checkpoint's full 28-layer Listener language island."""
         if self.language_model is None or self.tokenizer is None:
@@ -196,7 +199,7 @@ class KiraMLXListener(nn.Module):
         from mlx_lm.models.cache import make_prompt_cache
 
         acoustic_hidden, unit_ids = self(input_features, feature_length)
-        prompt_hidden = self._prompt_embeddings(acoustic_hidden)
+        prompt_hidden = self._prompt_embeddings(acoustic_hidden, language)
         cache = make_prompt_cache(self.language_model)
         empty = mx.zeros((1, prompt_hidden.shape[1]), dtype=mx.int32)
         logits = self.language_model(empty, cache=cache, input_embeddings=prompt_hidden)

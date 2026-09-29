@@ -25,6 +25,15 @@ class KiraLiveCheckpointBundle:
     emotion_normalization: Path
     coreml_emotion: Path | None
 
+    @property
+    def expert_rank(self) -> int:
+        return self.expert_config['expert_rank']
+
+    @property
+    def expert_config(self) -> dict:
+        from .expert_surgery import expert_checkpoint_config
+        return expert_checkpoint_config(self.thinker_addons)
+
 
 def _accepted_file(training: dict, key: str) -> Path:
     entry = training.get(key, {})

@@ -240,11 +240,14 @@ def main():
                 adapter_path = request.get("adapter_path") or None
                 thinker_addons_path = request.get("thinker_addons_path") or None
                 thinker_continuation_path = request.get("thinker_continuation_path") or None
-                expert_rank = int(request.get("expert_rank", 128))
+                expert_rank = int(request.get("expert_rank") or 128)
                 if current_brain == "kira" and thinker_addons_path:
                     from kira_live.mlx_thinker import KiraMLXThinker
+                    from kira_live.expert_surgery import expert_checkpoint_config
 
-                    model = KiraMLXThinker.from_pretrained(model_path, expert_rank=expert_rank)
+                    expert_config = expert_checkpoint_config(thinker_addons_path)
+                    expert_rank = expert_config['expert_rank']
+                    model = KiraMLXThinker.from_pretrained(model_path, **expert_config)
                     model.load_weights(thinker_addons_path, strict=False)
                     if thinker_continuation_path:
                         model.load_weights(thinker_continuation_path, strict=False)
@@ -275,6 +278,7 @@ def main():
                     "thinker_addons": thinker_addons_path,
                     "thinker_continuation": thinker_continuation_path,
                     "expert_rank": expert_rank if kira_native_thinker else None,
+                    "expert_profile": expert_config['expert_profile'] if kira_native_thinker else None,
                     "native_thinker": kira_native_thinker,
                     "mlx_cache_limit": cache_limit,
                     "stop_token_ids": sorted(RUNTIME_STOP_TOKEN_IDS),

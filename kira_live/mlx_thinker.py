@@ -11,7 +11,7 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from .mlx_layers import HashedNgramPLE, ThinkerOnlyExpertMoE
-from .policy import live_text_system_instruction, tree_execution_instruction
+from .policy import live_text_system_instruction, live_conversation_system_instruction, tree_execution_instruction
 from .generation_stream import bind_generation_stream
 
 
@@ -32,11 +32,12 @@ class ThinkerLivePrefix:
 class KiraMLXThinker(nn.Module):
     """Wrap MLX-LM's real Qwen3.5 weights without constructing a text prompt."""
 
-    def __init__(self, model: Any, tokenizer: Any, *, expert_rank: int = 128):
+    def __init__(self, model: Any, tokenizer: Any, *, expert_rank: int = 128, expert_profile: str = "legacy"):
         super().__init__()
         if expert_rank <= 0:
             raise ValueError("expert_rank must be positive.")
         self.expert_rank = int(expert_rank)
+        self.expert_profile = expert_profile
         self.model = model
         self.tokenizer = tokenizer
         self.language_model = getattr(model, "language_model", model)
@@ -47,7 +48,7 @@ class KiraMLXThinker(nn.Module):
         if len(self.decoder.layers) != 24:
             raise ValueError("KIRA Thinker expects the 24-layer Qwen3.5 layout.")
         self.expert_layers = [
-            ThinkerOnlyExpertMoE(hidden_size=self.hidden_size, rank=self.expert_rank)
+            ThinkerOnlyExpertMoE(hidden_size=self.hidden_size, rank=self.expert_rank, profile=expert_profile)
             for _ in range(16)
         ]
         self.ngram_layer_indices = (2, 6, 10, 14, 18, 22)
@@ -71,22 +72,20 @@ class KiraMLXThinker(nn.Module):
         self._generation_ngram_history = None
 
     @classmethod
-    def from_pretrained(cls, checkpoint: Path, *, expert_rank: int = 128) -> "KiraMLXThinker":
+    def from_pretrained(cls, checkpoint: Path, *, expert_rank: int = 128, expert_profile: str = "legacy") -> "KiraMLXThinker":
         from mlx_lm import load
 
         try:
             model, tokenizer = load(str(checkpoint), lazy=True)
         except TypeError:
             model, tokenizer = load(str(checkpoint))
-        return cls(model, tokenizer, expert_rank=expert_rank)
+        return cls(model, tokenizer, expert_rank=expert_rank, expert_profile=expert_profile)
 
     @property
     def active_moe_parameters(self) -> int:
         """Token-selected expert matrices plus the always-used router/context."""
-        active_experts_per_layer = sum(min(2, len(indices)) for indices in ThinkerOnlyExpertMoE.FAMILY_INDICES)
-        per_layer = active_experts_per_layer * 2 * self.hidden_size * self.expert_rank
-        per_layer += 10 * self.hidden_size + 8 * self.hidden_size
-        return len(self.expert_layers) * per_layer
+        from .expert_profiles import selected_parameter_budget
+        return selected_parameter_budget(self.hidden_size, len(self.expert_layers), self.expert_rank, self.expert_profile)["total"]
 
     def embed(self, token_ids: mx.array) -> mx.array:
         if token_ids.ndim != 2:
@@ -100,6 +99,8 @@ class KiraMLXThinker(nn.Module):
         memory_context: str = "",
         listener_unit_ids: mx.array | None = None,
         tree_planning: bool = False,
+        conversation_turns: list[dict[str, str]] | None = None,
+        artifact_content: bool = False,
     ) -> ThinkerLivePrefix:
         """Place direct Listener states into KIRA's private chat protocol.
 
@@ -110,16 +111,28 @@ class KiraMLXThinker(nn.Module):
         if (listener_semantic_states.ndim != 3 or listener_semantic_states.shape[0] != 1
                 or listener_semantic_states.shape[-1] != self.hidden_size):
             raise ValueError(f"Listener semantic states must be [1, time, {self.hidden_size}].")
-        # Train, chat and native speech must agree on identity, uncertainty and
-        # action evidence. A separate voice-only policy was creating drift.
-        policy = live_text_system_instruction()
+        # Keep the same identity and safety contract while focusing the small
+        # live decoder on conversation instead of unrelated coding instructions.
+        policy = live_conversation_system_instruction()
         if not tree_planning:
             policy += "\nSpeak naturally without JSON or routing tags. Use relevant chat memory as evidence; the user's possessions are not your own."
         if tree_planning:
             policy = live_text_system_instruction() + tree_execution_instruction()
         if memory_context.strip():
             policy += "\n\n" + memory_context.strip()
-        before_text = f"<|im_start|>system\n{policy}<|im_end|>\n<|im_start|>user\n"
+        if artifact_content:
+            policy += '\nWrite ONLY the requested document body, not tool commands or promises. For a story, write a complete original story in four paragraphs, about 180 words, with an ending. KIRA OS will create the Word file from your content. Do not discuss your ability to create files.'
+        before_text = f"<|im_start|>system\n{policy}<|im_end|>\n"
+        for turn in conversation_turns or ():
+            role = turn.get('role')
+            if role not in {'user', 'assistant'}:
+                continue
+            content = str(turn.get('content') or '')
+            # A stored transcript must not manufacture protocol/system turns.
+            for marker in ('<|im_start|>', '<|im_end|>', '<|im_sep|>', '<|endoftext|>'):
+                content = content.replace(marker, '')
+            before_text += f"<|im_start|>{role}\n{content}<|im_end|>\n"
+        before_text += "<|im_start|>user\n"
         # Match the public-answer prefill used by KIRA's text worker. Qwen3.5
         # otherwise starts a fresh thinking segment for voice turns, which can
         # leak internal tokens or wander before the short live token cap.
@@ -203,7 +216,7 @@ class KiraMLXThinker(nn.Module):
             mask = ssm_mask if layer.is_linear else fa_mask
             hidden = layer(hidden, mask=mask, cache=layer_cache)
             if index >= 8:
-                hidden, routed = self.expert_layers[index - 8](hidden, emotion_features)
+                hidden, routed = self._apply_expert(index - 8, hidden, emotion_features)
                 router_logits.append(routed)
         hidden = self.decoder.norm(hidden)
         self._last_router_logits = mx.stack(router_logits, axis=0)
@@ -214,6 +227,10 @@ class KiraMLXThinker(nn.Module):
         else:
             logits = self.language_model.lm_head(prediction_hidden)
         return hidden, logits
+
+    def _apply_expert(self, index, hidden, emotion_features):
+        """Extension hook; the accepted daily-driver path is unchanged."""
+        return self.expert_layers[index](hidden, emotion_features)
 
     @property
     def last_router_logits(self):
@@ -278,6 +295,7 @@ class KiraMLXThinker(nn.Module):
         cancelled: threading.Event | None = None,
         max_tokens: int = 160,
         compute_response_hidden: bool = True,
+        previous_replies: list[tuple[int, ...]] | None = None,
     ) -> ThinkerGeneration:
         """Cancellably decode public response tokens from a hidden audio prefix.
 
@@ -287,6 +305,8 @@ class KiraMLXThinker(nn.Module):
         if input_embeddings.ndim != 3 or input_embeddings.shape[0] != 1:
             raise ValueError("Generation embeddings must be [1, time, width].")
         from mlx_lm.generate import generate_step
+        from mlx_lm.sample_utils import make_logits_processors
+        from .response_repetition import make_reply_copy_penalty
         # MLX-LM's module-level stream may have been imported by the UI thread.
         # Bind only our invocation to this inference thread's active GPU stream.
         generate_step = bind_generation_stream(generate_step, mx.default_stream(mx.gpu))
@@ -310,12 +330,16 @@ class KiraMLXThinker(nn.Module):
         stop_ids.update(int(value) for value in configured)
         generated: list[int] = []
         was_cancelled = False
+        processors = make_logits_processors(repetition_penalty=1.08, repetition_context_size=64)
+        if previous_replies:
+            processors.append(make_reply_copy_penalty(previous_replies))
         try:
             iterator = generate_step(
                 mx.array([], dtype=mx.int32),
                 self,
                 input_embeddings=input_embeddings[0],
                 max_tokens=max_tokens,
+                logits_processors=processors,
             )
             for token, _logprobs in iterator:
                 if cancelled is not None and cancelled.is_set():

@@ -22,6 +22,7 @@ import numpy as np
 from transformers import AutoProcessor
 
 from .audio_devices import pick_audio_device
+from .event_dispatch import LiveEventDispatcher
 from .duplex import KiraLiveDuplexController
 from .coreml import CoreMLEmotionHeadRunner
 from .mlx_emotion import NgramListenerEmotionHead, pool_listener_ngram_states
@@ -40,6 +41,8 @@ from .audio_pipeline import overlap_audio
 from .token_bus import remap_token_ids
 from .checkpoint_bundle import resolve_live_checkpoint
 from .workflow_memory import PersistentWorkflowMemory
+from .response_repetition import repetition_requested
+from .action_contracts import wants_search, wants_docx, search_query, search_wants_open, docx_contract, tool_acknowledgement
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -81,7 +84,7 @@ class KiraNativeModelBundle:
             weights.listener.config,
             self.processor.tokenizer,
         )
-        self.thinker = KiraMLXThinker.from_pretrained(weights.thinker.snapshot)
+        self.thinker = KiraMLXThinker.from_pretrained(weights.thinker.snapshot, **checkpoint.expert_config)
         self.thinker.load_weights(
             str(checkpoint.thinker_addons), strict=False
         )
@@ -137,8 +140,12 @@ class KiraNativeLiveSession:
         tree_request_detector: Callable[[str], bool] | None = None,
         tree_executor: Callable[[str, str], str] | None = None,
         bundle: KiraNativeModelBundle | None = None,
+        language: str = "English",
     ):
         self.chat_id = str(chat_id or "kira-live")
+        if language not in {'Auto', 'English', 'Hindi', 'Tamil', 'Chinese', 'Arabic', 'French', 'German', 'Japanese', 'Spanish'}:
+            raise ValueError('Unsupported live speech language.')
+        self.language = None if language == 'Auto' else language
         self.on_event = on_event
         self.history_loader = history_loader
         self.tree_request_detector = tree_request_detector
@@ -173,6 +180,11 @@ class KiraNativeLiveSession:
         self._turn_guard = LiveTurnGuard()
         self._input_device: int | None = None
         self._output_device: int | None = None
+        self._event_dispatcher = LiveEventDispatcher(on_event)
+        self._turn_started_at = None
+        self._last_turn_metrics = {}
+        self._capture_overflows = 0
+        self._playback_underflows = 0
 
     @property
     def running(self) -> bool:
@@ -180,8 +192,7 @@ class KiraNativeLiveSession:
 
     def _emit(self, kind: str, **payload) -> None:
         payload.setdefault("chat_id", self.chat_id)
-        if self.on_event is not None:
-            self.on_event(kind, payload)
+        self._event_dispatcher.submit(kind, payload)
 
     def start(self) -> dict:
         if self._running:
@@ -189,7 +200,7 @@ class KiraNativeLiveSession:
         import sounddevice as sd
 
         devices = tuple(dict(item) for item in sd.query_devices())
-        defaults = tuple(int(item) for item in sd.default.device)
+        defaults = tuple(sd.default.device)
         self._input_device = pick_audio_device(
             devices, defaults[0], "max_input_channels"
         )
@@ -204,6 +215,8 @@ class KiraNativeLiveSession:
 
         def callback(indata, frames, _time, status):
             if status:
+                if status.input_overflow:
+                    self._capture_overflows += 1
                 self._emit("CAPTURE_STATUS", status=str(status))
             if not self._running or self._mic_muted or frames <= 0:
                 return
@@ -237,6 +250,7 @@ class KiraNativeLiveSession:
             samplerate=16_000,
             channels=1,
             dtype="float32",
+            latency="low",
             blocksize=self.control.config.audio.samples_per_frame,
             callback=callback,
         )
@@ -259,6 +273,7 @@ class KiraNativeLiveSession:
             ngrams,
             ticket,
             overlap,
+            time.perf_counter(),
         )
 
     def _emotion_features(self, acoustic_hidden: mx.array) -> mx.array:
@@ -293,16 +308,20 @@ class KiraNativeLiveSession:
         self.control.update_emotion(state)
         return probabilities.astype(mx.bfloat16)
 
-    def _run_utterance(self, samples: np.ndarray, ngrams: dict, ticket, during_playback: bool = False) -> None:
+    def _run_utterance(self, samples: np.ndarray, ngrams: dict, ticket, during_playback: bool = False, submitted_at: float | None = None) -> None:
         try:
             with self._lock:
                 with mx.stream(self.bundle.mlx_cpu_stream), mx.stream(
                     self.bundle.mlx_stream
                 ):
+                    self._turn_started_at = submitted_at or time.perf_counter()
+                    self._last_turn_metrics = {'queue_seconds': time.perf_counter() - self._turn_started_at}
+                    phase_started = time.perf_counter()
                     features, feature_length = self.bundle.features(samples)
                     decoded = self.bundle.listener.semantic_decode(
-                        features, feature_length, cancelled=ticket.cancelled
+                        features, feature_length, cancelled=ticket.cancelled, language=self.language
                     )
+                    self._last_turn_metrics['listener_seconds'] = time.perf_counter() - phase_started
                     if ticket.cancelled.is_set() or not decoded.token_ids:
                         return
                     accepted, reason = self._turn_guard.accept(decoded.text, during_playback=during_playback)
@@ -323,7 +342,9 @@ class KiraNativeLiveSession:
                             # append-only voice log remains available if it fails.
                             self._emit("MEMORY_BRIDGE_WARNING", error=str(exc))
                     prior_memory = ""
+                    conversation_turns = []
                     if self.control.memory is not None:
+                        conversation_turns = self.control.memory.conversation_turns(self.chat_id)
                         prior_memory = self.control.memory.build_context(
                             self.chat_id,
                             decoded.text,
@@ -333,7 +354,10 @@ class KiraNativeLiveSession:
                         )
                     self.control.transcript_ready(decoded.text)
                     self._emit("TRANSCRIPT", text=decoded.text)
+                    phase_started = time.perf_counter()
                     emotion = self._emotion_features(decoded.acoustic_hidden)
+                    self._last_turn_metrics['emotion_seconds'] = time.perf_counter() - phase_started
+                    phase_started = time.perf_counter()
                     mapped_token_ids = remap_token_ids(
                         decoded.token_ids,
                         self.bundle.listener.tokenizer,
@@ -350,19 +374,32 @@ class KiraNativeLiveSession:
                         and self.tree_request_detector(decoded.text)
                     )
                     if tree_requested:
+                        execution_request = decoded.text
+                        if wants_search(decoded.text) and not wants_docx(decoded.text):
+                            query = search_query(decoded.text, conversation_turns)
+                            plan_text = f'[WEB_SEARCH]\nQUERY: {query}\nVISIBLE: true\n[/WEB_SEARCH]'
+                            if search_wants_open(decoded.text, conversation_turns):
+                                execution_request += '\nOpen the first returned website as requested.'
+                        else:
+                            plan_text = ''
                         planning_prefix = self.bundle.thinker.build_live_prefix(
                             semantic, memory_context=prior_memory,
-                            listener_unit_ids=mapped_tokens, tree_planning=True,
+                            listener_unit_ids=mapped_tokens, tree_planning=not wants_docx(decoded.text),
+                            conversation_turns=conversation_turns,
+                            artifact_content=wants_docx(decoded.text),
                         )
-                        plan = self.bundle.thinker.generate_from_embeddings(
-                            planning_prefix.embeddings, emotion_features=emotion,
-                            ngram_ids=planning_prefix.ngram_ids,
-                            cancelled=ticket.cancelled, max_tokens=160, compute_response_hidden=False,
-                        )
+                        if not plan_text:
+                            plan = self.bundle.thinker.generate_from_embeddings(
+                                planning_prefix.embeddings, emotion_features=emotion,
+                                ngram_ids=planning_prefix.ngram_ids,
+                                cancelled=ticket.cancelled, max_tokens=384 if wants_docx(decoded.text) else 192,
+                                compute_response_hidden=False,
+                            )
+                            plan_text = docx_contract(sanitize_public_output(plan.text, live=True), decoded.text) if wants_docx(decoded.text) else plan.text
                         if ticket.cancelled.is_set():
                             return
                         self._emit("TREE_ACTION_STARTED")
-                        tool_evidence = str(self.tree_executor(plan.text, decoded.text) or "")
+                        tool_evidence = str(self.tree_executor(plan_text, execution_request) or "")
                         if self.control.memory is not None and tool_evidence:
                             self.control.memory.append(self.chat_id, "tool", tool_evidence, kind="tree_evidence")
                         self._emit("TREE_ACTION_FINISHED", evidence_chars=len(tool_evidence))
@@ -375,8 +412,9 @@ class KiraNativeLiveSession:
                         semantic,
                         memory_context=response_context,
                         listener_unit_ids=mapped_tokens,
+                        conversation_turns=conversation_turns,
                     )
-                    grounded = grounded_recall(decoded.text, prior_memory)
+                    grounded = tool_acknowledgement(tool_evidence) if tool_evidence else grounded_recall(decoded.text, prior_memory)
                     if grounded is not None:
                         public_text = grounded
                         response_token_ids = tuple(
@@ -392,8 +430,13 @@ class KiraNativeLiveSession:
                             cancelled=ticket.cancelled,
                             # Exact history remains on disk; cap live turns to
                             # keep spoken latency bounded.
-                            max_tokens=64,
+                            max_tokens=192,
                             compute_response_hidden=False,
+                            previous_replies=(
+                                [tuple(self.bundle.thinker.tokenizer.encode(turn['content'], add_special_tokens=False))
+                                 for turn in conversation_turns[-6:] if turn['role'] == 'assistant']
+                                if not repetition_requested(decoded.text) else None
+                            ),
                         )
                         public_text = sanitize_public_output(response.text, live=True)
                         response_token_ids = response.token_ids
@@ -407,6 +450,7 @@ class KiraNativeLiveSession:
                         response_token_ids = tuple(self.bundle.thinker.tokenizer.encode(guarded, add_special_tokens=False))
                     if ticket.cancelled.is_set() or not public_text:
                         return
+                    self._last_turn_metrics['response_preparation_seconds'] = time.perf_counter() - phase_started
                     speech_plan = self.bundle.voice.build_plan(
                         response_token_ids,
                         public_text,
@@ -415,12 +459,19 @@ class KiraNativeLiveSession:
                     )
                     self.control.response_started()
                     self._emit("RESPONSE_TEXT", text=speech_plan.public_text)
-                    chunks = self._play_voice_stream(speech_plan, ticket.cancelled)
+                    try:
+                        chunks = self._play_voice_stream(speech_plan, ticket.cancelled)
+                    finally:
+                        if ticket.cancelled.is_set():
+                            self.control.response_interrupted(speech_plan.public_text)
                     if ticket.cancelled.is_set() or chunks == 0:
                         return
                     if not ticket.cancelled.is_set():
                         self.control.response_finished(speech_plan.public_text)
                         self._emit("RESPONSE_FINISHED", text=speech_plan.public_text)
+                        self._emit("TURN_METRICS", **self._last_turn_metrics,
+                                   capture_overflows=self._capture_overflows,
+                                   playback_underflows=self._playback_underflows)
         except Exception as exc:
             if ticket.cancelled.is_set() or not self._running:
                 # A barge-in intentionally aborts an in-flight PortAudio write
@@ -445,11 +496,17 @@ class KiraNativeLiveSession:
                 self._output_stream = sd.OutputStream(
                     device=self._output_device, samplerate=sample_rate,
                     channels=1, dtype="float32", blocksize=960,
+                    latency="low",
                 )
                 self._output_stream.start()
                 self._echo_filter.set_output_delay(self._output_stream.latency)
                 self._turn_guard.note_playback(plan.public_text)
-                self._emit("FIRST_AUDIO", latency_seconds=time.perf_counter() - started)
+                first_audio = time.perf_counter()
+                self._last_turn_metrics['speech_start_seconds'] = first_audio - started
+                self._last_turn_metrics['turn_to_audio_seconds'] = first_audio - (self._turn_started_at or started)
+                self._last_turn_metrics['output_device_latency_seconds'] = float(self._output_stream.latency)
+                self._emit("FIRST_AUDIO", latency_seconds=first_audio - started,
+                           turn_latency_seconds=self._last_turn_metrics['turn_to_audio_seconds'])
             for offset in range(0, samples.size, 960):
                 if cancelled.is_set() or not self._running:
                     return
@@ -458,9 +515,11 @@ class KiraNativeLiveSession:
                 stream = self._output_stream
                 if stream is None:
                     return
-                stream.write(playback[:, None])
+                if stream.write(playback[:, None]):
+                    self._playback_underflows += 1
         try:
-            return overlap_audio(self.bundle.voice.iter_audio(plan, cancelled), consume, cancelled)
+            return overlap_audio(self.bundle.voice.iter_audio(plan, cancelled), consume, cancelled,
+                                 prebuffer=getattr(self.bundle.voice, 'playback_prebuffer', 2))
         finally:
             self.stop_playback(abort=cancelled.is_set() or not self._running)
 
@@ -511,6 +570,7 @@ class KiraNativeLiveSession:
         self.control.stop()
         status = self.status()
         self._inference.shutdown(wait=False, cancel_futures=True)
+        self._event_dispatcher.close()
         return status
 
     def status(self) -> dict:
@@ -524,7 +584,12 @@ class KiraNativeLiveSession:
             "last_error": self._last_error,
             "talker": self.bundle.voice.model_id,
             "voice": self.bundle.voice.speaker,
+            "voice_optimization": dict(self.bundle.voice.optimization),
             "input_device": self._input_device,
             "output_device": self._output_device,
+            "last_turn_metrics": dict(self._last_turn_metrics),
+            "capture_overflows": self._capture_overflows,
+            "playback_underflows": self._playback_underflows,
+            "event_delivery_error": self._event_dispatcher.last_error,
             "acoustic_ngrams": self.duplex.ngrams.snapshot(),
         }

@@ -1711,7 +1711,12 @@
             <p id="voice-live-caption">Checking the native Listener → Thinker → Talker path.</p>
             <div id="voice-live-transcript" class="live-transcript-line" role="log" aria-label="Conversation transcript"></div>
             <details class="live-details" id="live-details"><summary>Connection &amp; model details</summary>
+                <div class="live-readiness-detail" id="live-latency">Voice timing appears after a completed turn.</div>
                 <div id="live-readiness" class="live-readiness" aria-live="polite"></div>
+                <label for="live-language">Speech language (next session)</label>
+                <select id="live-language" style="background:#161616;color:#fff;padding:8px;border-radius:8px" aria-label="Speech language">
+                    <option>English</option><option>Auto</option><option>Hindi</option><option>Tamil</option><option>Arabic</option><option>Chinese</option><option>French</option><option>German</option><option>Japanese</option><option>Spanish</option>
+                </select>
             </details>
             <div class="live-controls">
                 <button id="voice-listen-btn" onclick="handleLiveMicrophone()" class="live-control primary" title="Start KIRA Live" aria-label="Start KIRA Live" aria-pressed="false" disabled>
@@ -3369,6 +3374,7 @@
                     await refreshChatHistory();
                 }
                 voiceLiveTranscript.textContent = '';
+                document.getElementById('live-latency').textContent = 'Voice timing appears after a completed turn.';
                 liveVisual.targetLevel = 0;
             }
             liveMonitorOpen = true;
@@ -3447,7 +3453,7 @@
                 if (!status.conversation_ready) return;
                 voiceListenButton.disabled = true;
                 setVoiceLiveState('loading', 'Preparing Listener → Thinker → Talker on Apple silicon…');
-                const result = await window.pywebview.api.start_live_voice(currentChatId);
+                const result = await window.pywebview.api.start_live_voice(currentChatId, document.getElementById('live-language').value);
                 if (!liveMonitorOpen || startEpoch !== kiraLiveStartEpoch) {
                     await window.pywebview.api.stop_live_voice();
                     return;
@@ -3625,6 +3631,7 @@
             if (dictationActive) await toggleDictation();
             if (liveMonitorOpen || isVoiceActive || kiraLiveStarting) await toggleLiveMonitor(false);
             voiceLiveTranscript.textContent = '';
+            document.getElementById('live-latency').textContent = 'Voice timing appears after a completed turn.';
 
             const chat = await window.pywebview.api.new_chat("New Chat");
             currentChatId = chat.id;
@@ -4163,6 +4170,10 @@
             const current = voiceLiveTranscript.textContent.trim();
             const line = `${speaker}: ${clean}`;
             const existing = current && current !== 'Voice mode is ready.' ? current.split('\n').slice(-10) : [];
+            const lastLine = existing[existing.length - 1] || '';
+            const sameRole = lastLine.startsWith('You:') === (speaker === 'You');
+            const lastText = lastLine.slice(lastLine.indexOf(':') + 1).trim();
+            if (sameRole && lastText === clean) return;
             existing.push(line);
             voiceLiveTranscript.textContent = existing.join('\n');
             voiceLiveTranscript.scrollTop = voiceLiveTranscript.scrollHeight;
@@ -4252,7 +4263,7 @@
 
             if (!options.forceBrowser && isBackendReady && window.pywebview.api.start_live_voice) {
                 try {
-                    const started = await window.pywebview.api.start_live_voice(currentChatId);
+                    const started = await window.pywebview.api.start_live_voice(currentChatId, document.getElementById('live-language').value);
                     if (started && started.ok) {
                         if (started.chat_id) currentChatId = started.chat_id;
                         voiceListening = true;
@@ -4909,7 +4920,11 @@
                     renderAIMessage(update.content, normalizeModelLabel(update.model_used));
                     updateSystemStatus("System Idle");
                     setAIStripState(liveMonitorOpen ? 'live' : 'off');
-                    if (isVoiceActive) {
+                    // Native Live already emits RESPONSE_TEXT / FIRST_AUDIO /
+                    // RESPONSE_FINISHED. Its persisted chat copy must not
+                    // enqueue a second transcript or legacy Kokoro state.
+                    const nativeLiveReply = isVoiceActive && normalizeModelLabel(update.model_used) === 'KIRA Live 1';
+                    if (isVoiceActive && !nativeLiveReply) {
                         const spoken = stripToPlainText(update.content);
                         appendVoiceTranscript(normalizeModelLabel(update.model_used || 'Orchestrator V1'), spoken);
                         const outputReady = voiceBackendStatus.voice_ready || voiceBackendStatus.stts_silent_test;
@@ -5029,11 +5044,22 @@
                 setVoiceLiveState('thinking', 'Preparing direct neural speech...');
             } else if (event === 'FIRST_AUDIO') {
                 setVoiceLiveState('speaking', 'Speaking. You can interrupt at any time.');
+                const timing = document.getElementById('live-latency');
+                if (timing && Number.isFinite(extra.turn_latency_seconds)) timing.textContent = `Capture complete → voice: ${extra.turn_latency_seconds.toFixed(2)}s (excludes endpoint silence).`;
+            } else if (event === 'TURN_METRICS') {
+                const timing = document.getElementById('live-latency');
+                if (timing && Number.isFinite(extra.turn_to_audio_seconds)) timing.textContent = `Capture → voice ${extra.turn_to_audio_seconds.toFixed(2)}s · Listener ${(extra.listener_seconds || 0).toFixed(2)}s · Speech startup ${(extra.speech_start_seconds || 0).toFixed(2)}s · Capture overruns ${extra.capture_overflows || 0} · Playback underruns ${extra.playback_underflows || 0}`;
             } else if (event === 'RESPONSE_FINISHED') {
                 setVoiceLiveState('listening', 'Listening again.');
             } else if (event === 'RESPONSE_INTERRUPTED') {
                 setLiveAudioLevel(0, 'tts');
                 setVoiceLiveState('listening', 'Interrupted. I’m listening.');
+            } else if (event === 'TREE_ACTION_STARTED') {
+                setVoiceLiveState('agentic', 'Checking with tools… You can interrupt.');
+            } else if (event === 'TREE_ACTION_FINISHED') {
+                setVoiceLiveState('thinking', 'Using the results to answer…');
+            } else if (event === 'TRANSCRIPT_IGNORED') {
+                setVoiceLiveState('listening', 'Listening — background sound was ignored.');
             } else if (event === 'VOICE_PROMPT_QUEUED') {
                 setVoiceLiveState('thinking', 'Orchestrator V1 is thinking...');
             } else if (event === 'TTS_START') {

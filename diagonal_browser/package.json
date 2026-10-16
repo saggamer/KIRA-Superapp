@@ -1,0 +1,25 @@
+{
+  "name": "kira-diagonal-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Persistent Playwright browser MCP for Kira",
+  "scripts": {
+    "start": "node server.mjs",
+    "desktop": "electron desktop.mjs",
+    "mcp-config": "node print_mcp_config.mjs",
+    "setup": "playwright install ffmpeg",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "playwright": "1.61.0",
+    "zod": "4.4.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1"
+  }
+}

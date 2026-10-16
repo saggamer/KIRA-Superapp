@@ -5,6 +5,7 @@ import time
 import unittest
 
 from interface import KiraBrain
+from model_worker import sanitize_generated_content
 
 
 APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -141,8 +142,48 @@ class OrchestratorRuntimeStabilityTests(unittest.TestCase):
 
         compile(source, worker_path, "exec")
         self.assertIn("RUNTIME_STOP_TOKEN_IDS = {1, 49, 51, 106}", source)
-        self.assertEqual(source.count("content = generate("), 1)
+        ordinary = source.split('if request_type == "generate":', 1)[1].split(
+            'if request_type == "finish_v15":', 1)[0]
+        browser_finish = source.split('if request_type == "finish_v15":', 1)[1].split(
+            'if request_type == "propose_v15":', 1)[0]
+        self.assertEqual(ordinary.count("content = generate("), 1)
+        self.assertEqual(browser_finish.count("content = generate("), 1)
         self.assertNotIn("except Exception:\n                content = generate(", source)
+
+    def test_worker_truncates_at_model_turn_boundary(self):
+        self.assertEqual(sanitize_generated_content("Ready.<turn|>ignored"), "Ready.")
+        self.assertEqual(sanitize_generated_content("Ready.<|im_end|>ignored"), "Ready.")
+        self.assertEqual(sanitize_generated_content("Clean answer"), "Clean answer")
+
+    def test_worker_removes_private_reasoning_before_ipc(self):
+        self.assertEqual(
+            sanitize_generated_content(
+                "<thought_process>secret branch scoring</thought_process>Public answer"
+            ),
+            "Public answer",
+        )
+        self.assertEqual(
+            sanitize_generated_content("<analysis>unfinished private reasoning"),
+            "",
+        )
+
+    def test_kira_live_prompt_uses_qwen_tokens_and_disables_thinking(self):
+        brain = self._brain()
+        brain.current_brain = "kira"
+        brain.kira_live_experimental = True
+        prompt = brain._tokenizer_prompt([{"role": "user", "content": "hello"}])
+
+        self.assertIn("<|im_start|>user\nhello<|im_end|>", prompt)
+        self.assertTrue(prompt.endswith("<|im_start|>assistant\n<think>\n\n</think>\n\n"))
+
+    def test_external_worker_loads_optional_adapter(self):
+        worker_path = os.path.join(APP_ROOT, "model_worker.py")
+        with open(worker_path, "r", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertIn('adapter_path = request.get("adapter_path") or None', source)
+        self.assertIn("adapter_path=adapter_path", source)
+        self.assertIn('if current_brain == "orchestrator":\n                    install_fast_transformers_shim()', source)
 
     def test_ui_process_launches_external_worker_instead_of_inline_code(self):
         source = inspect.getsource(KiraBrain._start_model_worker)

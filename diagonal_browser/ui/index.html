@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file: https: http:; media-src 'self' file:; style-src 'self'; script-src 'self'">
+  <title>Diagonal Browser</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="chrome">
+    <div class="tab-row">
+      <div class="brand" aria-label="Diagonal Browser">DIAGONAL</div>
+      <div class="tabs" id="tabs" role="tablist" aria-label="Browser tabs"></div>
+      <button class="new-tab" id="new-tab" title="New tab" aria-label="New tab">+</button>
+      <div class="window-label">BROWSER</div>
+    </div>
+    <div class="navigation-row">
+      <div class="navigation-controls" role="group" aria-label="Navigation">
+        <button class="icon-button" id="back" title="Back" aria-label="Back">←</button>
+        <button class="icon-button" id="forward" title="Forward" aria-label="Forward">→</button>
+        <button class="icon-button" id="reload" title="Reload" aria-label="Reload">↻</button>
+        <button class="icon-button" id="home" title="Home" aria-label="Home">⌂</button>
+      </div>
+      <form id="address-form" class="address-wrap">
+        <span class="address-icon">◇</span>
+        <input id="address" type="text" spellcheck="false" autocomplete="off" placeholder="Search with DDG or enter a URL" aria-label="Address and search">
+        <span class="address-hint">↵</span>
+      </form>
+      <button class="tool-button images-tool" id="images" title="Search images" aria-label="Search images">▧ <span>Images</span></button>
+    </div>
+    <div class="utility-row">
+      <div class="page-context" id="page-context" title="Current page"><span class="context-dot"></span><span id="page-context-label">Ready to explore</span></div>
+      <div class="utility-actions" role="group" aria-label="Page tools">
+        <button class="tool-button" id="screenshot" title="Save screenshot" aria-label="Save screenshot">▣ <span>Capture</span></button>
+        <button class="tool-button" id="record" title="Record current page" aria-label="Record current page">● <span>Record</span></button>
+        <span class="utility-separator" aria-hidden="true"></span>
+        <button class="tool-button" id="adblock" title="Toggle ad and tracker blocking" aria-label="Toggle ad and tracker blocking">◧ <span>Shield on</span></button>
+        <button class="tool-button" id="accounts" title="Email nicknames" aria-label="Email nicknames">◎ <span>Accounts</span></button>
+        <button class="tool-button" id="inspect" title="Inspect the current URL and page for LLM use" aria-label="Inspect current page">◇ <span>Inspect</span></button>
+        <button class="tool-button" id="media" title="View saved screenshots and recordings" aria-label="Media library">▧ <span>Library</span></button>
+      </div>
+    </div>
+    <div class="load-progress" id="load-progress" hidden><span></span></div>
+  </header>
+  <main id="home-page" class="home-page">
+    <div class="image-wash"></div>
+    <div id="search-status" class="search-status" role="status" hidden><span class="search-spinner"></span><span id="search-status-text">Searching…</span></div>
+    <div class="hero">
+      <div class="eyebrow"><span class="pulse"></span> EXPLORE WITHOUT LIMITS</div>
+      <h1>Explore the<br><em>unseen.</em></h1>
+      <p>One space for searching, browsing, and capturing the web.</p>
+      <div class="search-switch" role="tablist" aria-label="Search type">
+        <button type="button" class="selected" data-mode="web" role="tab" aria-selected="true">⌕ <span>Web</span></button>
+        <button type="button" data-mode="images" role="tab" aria-selected="false">▧ <span>Images</span></button>
+      </div>
+      <form id="hero-search" class="hero-search">
+        <span>⌕</span>
+        <input id="hero-input" type="text" autocomplete="off" placeholder="Search anything or paste a link" aria-label="Search the web">
+        <button type="submit">Explore <span>↗</span></button>
+      </form>
+      <div class="quick-links">
+        <span>QUICK ACCESS</span>
+        <button data-url="https://example.com">Example</button>
+        <button data-url="https://www.wikipedia.org">Wikipedia</button>
+        <button data-url="https://github.com">GitHub</button>
+      </div>
+    </div>
+    <section id="results" class="results" hidden></section>
+    <section id="panel" class="panel" hidden>
+      <div class="panel-top"><div><div class="panel-eyebrow">DIAGONAL TOOLS</div><h2 id="panel-title"></h2><p id="panel-subtitle"></p></div><div class="panel-actions" id="panel-actions"></div><button id="panel-close" class="panel-close" title="Close panel">×</button></div>
+      <div id="panel-body" class="panel-body"></div>
+    </section>
+    <div class="footer-note">DIAGONAL BROWSER <span>•</span> POWERED BY CHROMIUM + DDG</div>
+  </main>
+  <div id="image-viewer" class="image-viewer" role="dialog" aria-modal="true" aria-label="Image preview" hidden>
+    <button id="image-viewer-backdrop" class="image-viewer-backdrop" aria-label="Close image preview"></button>
+    <div class="image-viewer-shell">
+      <div class="image-viewer-top"><span id="image-viewer-count"></span><button id="image-viewer-close" aria-label="Close image preview">×</button></div>
+      <div class="image-viewer-main"><button id="image-prev" class="image-arrow" aria-label="Previous image">‹</button><div class="image-viewer-stage"><img id="image-viewer-image" alt=""><div id="image-viewer-fallback" hidden>Preview unavailable. Open the source page to view this image.</div></div><button id="image-next" class="image-arrow" aria-label="Next image">›</button></div>
+      <div class="image-viewer-info"><div><h2 id="image-viewer-title"></h2><p id="image-viewer-source"></p></div><div class="image-viewer-actions"><button id="image-copy">Copy image URL</button><button id="image-original">View original ↗</button><button id="image-source">Visit source ↗</button></div></div>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="renderer.js"></script>
+</body>
+</html>

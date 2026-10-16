@@ -49,8 +49,8 @@ class SmokeActions(KiraActionsMixin):
 def write_fixture(site_root):
     site_root.mkdir(parents=True, exist_ok=True)
     visual_sources = {
-        "kira-product.png": APP_DIR / "demo" / "KIRA_OS_Product_Demo_Poster.png",
-        "kira-tree.png": APP_DIR / "demo" / "KIRA_OS_Specialist_TREE_Demo_Poster.png",
+        "kira-product.png": APP_DIR / "demo" / "kira-workspace-desktop.png",
+        "kira-tree.png": APP_DIR / "demo" / "kira-workspace-mobile.png",
         "kira-logo.png": APP_DIR / "website" / "assets" / "kira_logo_sample4.png",
         "kira-icon.png": APP_DIR / "assets" / "kira_logo_icon.png",
         "kira-blackhole.jpg": APP_DIR / "website" / "assets" / "interstellar_blackhole.jpg",

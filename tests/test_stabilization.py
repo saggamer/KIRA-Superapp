@@ -228,7 +228,7 @@ class StabilizationTests(unittest.TestCase):
         with open(ui_path, "r", encoding="utf-8") as handle:
             markup = handle.read()
 
-        self.assertIn("Hello, apply your name.", markup)
+        self.assertIn("What’s on your mind?", markup)
         self.assertIn('id="profile-settings-modal"', markup)
         self.assertNotIn("Hello, Dhanvanth.", markup)
 
@@ -238,11 +238,11 @@ class StabilizationTests(unittest.TestCase):
             markup = handle.read()
 
         self.assertIn("<title>KIRA Superapp</title>", markup)
-        self.assertIn("KIRA SUPERAPP", markup)
+        self.assertIn("KIRA Superapp", markup)
         self.assertIn('data-mode="agent"', markup)
         self.assertIn('data-mode="vibe_coding"', markup)
         self.assertIn("let currentMode = 'agent';", markup)
-        self.assertEqual(markup.count('class="mode-btn'), 2)
+        self.assertEqual(re.findall(r'<button\b[^>]*data-mode="([^"]+)"', markup), ['agent', 'vibe_coding'])
         self.assertNotIn('data-mode="chat"', markup)
         self.assertNotIn("Basic Chat", markup)
         self.assertNotIn("Agentic RAG", markup)
@@ -301,13 +301,15 @@ class StabilizationTests(unittest.TestCase):
         self.assertTrue(ui_calls)
         self.assertEqual(sorted(ui_calls - backend_methods), [])
 
-    def test_superapp_glass_theme_is_neutral(self):
+    def test_superapp_workspace_theme_uses_solid_surfaces(self):
         ui_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui.html")
         with open(ui_path, "r", encoding="utf-8") as handle:
             markup = handle.read()
 
-        self.assertIn("--glass-surface: rgba(20, 20, 21, 0.58)", markup)
-        self.assertIn("backdrop-filter: blur(32px)", markup)
+        workspace_theme = markup[markup.index("/* Workspace design:"):markup.index("</style>")]
+        self.assertIn("--workspace-bg: #1d1d1b", workspace_theme)
+        self.assertIn("background-image: none", workspace_theme)
+        self.assertIn("backdrop-filter: none", workspace_theme)
         self.assertNotIn("--accent: #9bdaf1", markup)
         self.assertNotIn("rgba(75, 132, 155, 0.14)", markup)
 

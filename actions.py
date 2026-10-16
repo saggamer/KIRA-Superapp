@@ -733,7 +733,7 @@ class KiraActionsMixin:
             {"command": "/sandbox ", "title": "Inspect macOS sandbox policy", "hint": "Use Seatbelt-aware branch planning.", "category": "tree"},
             {"command": "/models ", "title": "Scan local small models", "hint": "Find local candidates that can become subagents.", "category": "subagents"},
             {"command": "/subagents ", "title": "Create or use subagent leaves", "hint": "Orchestrator writes specialist prompts and queues task packets.", "category": "subagents"},
-            {"command": "/browser ", "title": "Open and read a web page", "hint": "Uses your default browser and KIRA's open-source page reader.", "category": "web"},
+            {"command": "/browser ", "title": "Use Diagonal Browser", "hint": "Visit pages, interact, and capture screenshots or recordings.", "category": "web"},
             {"command": "/app ", "title": "Inspect an app integration", "hint": "Example: /app blender", "category": "integrations"},
             {"command": "/blender", "title": "Inspect Blender integration", "hint": "Find Blender, CLI, scripts, add-ons, and project hooks.", "category": "integrations"},
             {"command": "/ide ", "title": "Codex-style IDE bridge", "hint": "Example: /ide context . or /ide open . cursor", "category": "ide"},
@@ -2035,7 +2035,10 @@ class KiraActionsMixin:
         if self._prompt_requests_app_choice(text):
             blocks.append("[APP_LIST]\n[/APP_LIST]")
 
-        if any(word in lowered for word in ["branch registry", "/branches", "tree branches", "the tree", "execution tree"]):
+        if re.search(r"\b(?:tree memory|execution checkpoint|resume (?:the |my )?(?:tree|previous task))\b", lowered):
+            blocks.append("[TREE_MEMORY]\n[/TREE_MEMORY]")
+
+        if not any("[TREE_MEMORY]" in block for block in blocks) and any(word in lowered for word in ["branch registry", "/branches", "tree branches", "the tree", "execution tree"]):
             blocks.append("[BRANCH_REGISTRY]\n[/BRANCH_REGISTRY]")
 
         if any(word in lowered for word in ["sandbox", "seatbelt", "macos sandbox", "sandbox profile"]):
@@ -2109,8 +2112,14 @@ class KiraActionsMixin:
         wants_images = any(word in lowered for word in ["image", "images", "photo", "photos", "picture", "pictures", "visual"])
         wants_web = wants_images or any(word in lowered for word in ["web", "internet", "search", "research", "browse", "look up", "fact check"])
         wants_artifact = any(word in lowered for word in ["ppt", "pptx", "deck", "presentation", "docx", "word", "report"])
+        browser_requested = bool(re.search(r"(?i)(?:/browser\b|\bdiagonal browser\b|\bbrowser tool\b)", text))
+        browser_url = re.search(r"https?://[^\s`\"<>]+", text, re.I)
+        if browser_requested and browser_url:
+            blocks.append(f"[BROWSER_TOOL]\nACTION: navigate\nURL: {browser_url.group(0).rstrip('.,;')}\n[/BROWSER_TOOL]")
         if wants_web and "://" not in lowered and not subagent_requested:
-            query = self._web_query_from_prompt(text)
+            browser_query = re.sub(r"(?i)^\s*/browser\s*", "", text)
+            browser_query = re.sub(r"(?i)\b(?:using|use|with)\s+(?:the\s+)?(?:diagonal\s+)?browser(?:\s+tool)?\b", "", browser_query)
+            query = self._web_query_from_prompt(browser_query)
             if query:
                 if wants_images or wants_artifact:
                     blocks.append(
@@ -2118,9 +2127,10 @@ class KiraActionsMixin:
                         "VISIBLE: true\n[/WEB_RESEARCH]"
                     )
                 else:
-                    blocks.append(
-                        f"[WEB_SEARCH]\nQUERY: {query}\nVISIBLE: true\n[/WEB_SEARCH]"
-                    )
+                    if browser_requested:
+                        blocks.append(f"[BROWSER_TOOL]\nACTION: search\nQUERY: {query}\n[/BROWSER_TOOL]")
+                    else:
+                        blocks.append(f"[WEB_SEARCH]\nQUERY: {query}\nVISIBLE: true\n[/WEB_SEARCH]")
                 if wants_images or any(word in lowered for word in ["with images", "use images", "image for", "images for"]):
                     blocks.append(f"[WEB_IMAGE_SEARCH]\nQUERY: {query}\nLIMIT: 4\n[/WEB_IMAGE_SEARCH]")
 
@@ -2131,7 +2141,7 @@ class KiraActionsMixin:
         if not text:
             return False
         wants_artifact = any(word in text for word in [
-            "ppt", "pptx", "deck", "presentation", "docx", "word", "document", "report", "pdf"
+            "ppt", "pptx", "powerpoint", "deck", "presentation", "slide", "docx", "word", "document", "report", "pdf"
         ])
         if not wants_artifact:
             return False
@@ -2139,12 +2149,17 @@ class KiraActionsMixin:
             return False
         if re.search(r"\b(?:on|about)\s+(?:the\s+)?(?:best|top[ -]rated|highest[ -]rated|most acclaimed)\b", text):
             return True
-        return any(phrase in text for phrase in [
+        if any(phrase in text for phrase in [
             "research", "browse the web", "web", "internet", "search", "look up",
             "current", "latest", "new", "recent", "crunchyroll", "website", "websites",
             "source", "sources", "citation", "citations", "hyperlink", "hyperlinks",
-            "image", "images", "photo", "photos", "poster", "posters", "download"
+            "download"
+        ]):
+            return True
+        wants_images = any(phrase in text for phrase in [
+            "image", "images", "photo", "photos", "poster", "posters"
         ])
+        return wants_images and not bool(self._extract_image_sources_from_prompt(raw_prompt))
 
     def _model_research_shortcut_blocks(self, output, raw_prompt, chat_id=None):
         """Recover this read-only UI shortcut without queuing a new user task."""
@@ -2888,6 +2903,20 @@ NOTES: Generated as a new artifact for this chat and validated before completion
                 return True
         return False
 
+    def _pptx_visuals_requested(self, raw_prompt):
+        request = str(raw_prompt or "").lower()
+        return (bool(re.search(r"\b(?:images?|photos?|visuals?|pictures?)\b", request))
+                and not bool(re.search(
+                    r"\b(?:no|without)\s+(?:images?|photos?|visuals?|pictures?)\b|\btext[ -]only\b",
+                    request)))
+
+    def _pptx_min_visuals(self, raw_prompt):
+        """Honor an explicit single-image brief; otherwise expect visual variety."""
+        request = str(raw_prompt or "").lower()
+        if re.search(r"\b(?:one|1|single)\s+(?:\w+\s+){0,2}(?:image|photo|visual|picture)\b", request):
+            return 1
+        return 2
+
     def _artifact_spec_quality_reasons(self, spec, kind, raw_prompt=""):
         value = str(spec or "")
         lowered = value.lower()
@@ -2900,21 +2929,42 @@ NOTES: Generated as a new artifact for this chat and validated before completion
             "kira os generated visual", "generated visual",
             "local artifact asset", "replace placeholder", "ask kira",
         ]
-        leaked = sorted({marker for marker in process_markers if marker in lowered})
+        leaked = sorted({marker for marker in process_markers if marker in lowered and
+                         (marker not in {"intent:", "plan:", "execute:", "verify:"} or
+                          re.search(r"(?im)^\s*" + re.escape(marker), value))})
         if leaked:
             reasons.append("internal process or placeholder language detected: " + ", ".join(leaked[:6]))
 
         if str(kind or "").lower() == "pptx":
+            visible_lines = re.findall(
+                r"(?im)^\s*(?:TITLE|SUBTITLE|SLIDE|BODY|BULLET)\s*:\s*(.+)$", value
+            )
+            if any(re.search(
+                    r"(?i)\b(?:image[- ]generation prompt|image prompt|prompt to (?:generate|create)|"
+                    r"(?:generate|create|render) (?:an? )?(?:image|photo|illustration)|"
+                    r"(?:image|photo) of [^\n]*\b(?:no text|aspect ratio|cinematic lighting))\b",
+                    line) for line in visible_lines):
+                reasons.append("image-making instructions leaked into slide content")
             slide_count = len(re.findall(r"(?im)^\s*SLIDE\s*:", value))
-            if slide_count < 5:
-                reasons.append("slide specification has fewer than 5 content slides")
+            count = re.search(
+                r"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
+                r"(substantive\s+)?(content\s+)?slides?\b", str(raw_prompt or ""), re.I)
+            words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                     "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+            requested = (int(count.group(1)) if count and count.group(1).isdigit()
+                         else words[count.group(1).lower()] if count else None)
+            minimum = (requested if count and count.group(3) else max(requested - 1, 0)
+                       if requested is not None else 5)
+            minimum = min(minimum, 20)
+            if slide_count < minimum:
+                reasons.append(f"slide specification has fewer than {minimum} content slides")
             if re.search(r"(?im)^\s*BULLET\s*:\s*$", value):
                 reasons.append("empty bullet detected")
-            request = str(raw_prompt or "").lower()
-            if any(word in request for word in ["image", "images", "photo", "photos", "visual", "visuals"]):
+            if self._pptx_visuals_requested(raw_prompt):
                 image_count = len(re.findall(r"(?im)^\s*IMAGE\s*:\s*\S", value))
-                if image_count < 2:
-                    reasons.append("slide specification does not include at least 2 image sources")
+                minimum_images = self._pptx_min_visuals(raw_prompt)
+                if image_count < minimum_images:
+                    reasons.append(f"slide specification does not include at least {minimum_images} image source(s)")
         elif str(kind or "").lower() == "docx":
             substantive_fields = len(re.findall(
                 r"(?im)^\s*(?:PARAGRAPH|CONTENT|HEADING|BULLET)\s*:\s*\S",
@@ -3021,22 +3071,33 @@ NOTES: Generated as a new artifact for this chat and validated before completion
                 if url.startswith(("http://", "https://"))
                 and not any(pattern in url.lower() for pattern in search_link_patterns)
             )
-            if report["slides"] < 5:
-                report["reasons"].append("fewer than 5 slides")
-            if report["text_chars"] < 650:
+            count = re.search(
+                r"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
+                r"(substantive\s+)?(content\s+)?slides?\b", request, re.I)
+            words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                     "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+            requested = (int(count.group(1)) if count and count.group(1).isdigit()
+                         else words[count.group(1).lower()] if count else None)
+            minimum_slides = (requested + 1 if count and count.group(3) else requested
+                              if requested is not None else 5)
+            if report["slides"] < minimum_slides:
+                report["reasons"].append(f"fewer than {minimum_slides} slides")
+            minimum_chars = 250 if requested is not None and requested <= 4 else 650
+            if report["text_chars"] < minimum_chars:
                 report["reasons"].append("insufficient substantive content")
             content_slides = slide_texts[1:] if len(slide_texts) > 1 else slide_texts
             report["sparse_slides"] = sum(1 for text in content_slides if len(text) < 120)
             if content_slides and report["sparse_slides"] > max(1, len(content_slides) // 3):
                 report["reasons"].append("too many sparse content slides")
-            if any(word in request for word in ["image", "images", "photo", "photos", "visual", "visuals"]):
-                if report["pictures"] < 2:
+            if self._pptx_visuals_requested(raw_prompt):
+                minimum_images = self._pptx_min_visuals(raw_prompt)
+                if report["pictures"] < minimum_images:
                     report["reasons"].append("requested visuals are missing")
-                elif report["unique_pictures"] < 2:
+                elif report["unique_pictures"] < minimum_images:
                     report["reasons"].append("requested visuals lack variety")
-                if report["usable_pictures"] < 2:
-                    report["reasons"].append("fewer than 2 presentation-quality visuals are embedded")
-                elif report["unique_usable_pictures"] < 2:
+                if report["usable_pictures"] < minimum_images:
+                    report["reasons"].append(f"fewer than {minimum_images} presentation-quality visuals are embedded")
+                elif report["unique_usable_pictures"] < minimum_images:
                     report["reasons"].append("presentation-quality visuals lack variety")
             if any(word in request for word in [
                 "hyperlink", "hyperlinks", "link", "links", "website", "websites",
@@ -3058,7 +3119,7 @@ NOTES: Generated as a new artifact for this chat and validated before completion
                 "exact brief:", "evidence status:", "requested scope", "available evidence",
                 "local visual support", "external claims should be verified", "topic remains centered",
                 "kira os generated visual", "generated visual", "generated as a new artifact",
-                "thought_process", "private reasoning", "intent:", "plan:", "execute:", "verify:",
+                "thought_process", "private reasoning", "intent:", "execute:", "verify:",
                 "bullet:"
             ]
             report["process_leaks"] = sorted({
@@ -4103,7 +4164,7 @@ NOTES: Generated by KIRA OS from read-only local inspection context.
             re.IGNORECASE
         )
         tool_start = re.compile(
-            r"^\s*(?:\[\s*(?:BRANCH_REGISTRY|TREE_STATUS|SANDBOX_PROFILE|SPECIALIST_REGISTRY|SPECIALIST_TASK|MODEL_SCAN|SUBAGENT_REGISTRY|SUBAGENT_CREATE|SUBAGENT_TASK|OS_MAP|SYSTEM_REPORT|MEMORY_REPORT|APP_LIST|WINDOW_REPORT|VIRUS_SCAN|OPTIMISE_SCAN|READ_FILE|LIST_DIR|SEARCH_FILES|FIND_IN_COMPUTER|NATIVE_PDF|NATIVE_PPTX|NATIVE_DOCX|OPEN|CLOSE|WEB_SEARCH|WEB_OPEN|WEB_FETCH|WEB_BROWSE|IDE_CONTEXT|IDE_PASTE_RUN|PROJECT_INDEX|MCP_DISCOVER|MCP_BOOTSTRAP|MCP_DRAFT|APP_INTEGRATION|BLENDER_CONTEXT|SCHEDULE_TASK|SHELL|COMMAND|TERMINAL|APPLESCRIPT)\s*\]|```(?:bash|sh|zsh|shell|terminal))",
+            r"^\s*(?:\[\s*(?:BRANCH_REGISTRY|TREE_STATUS|TREE_MEMORY|SANDBOX_PROFILE|SPECIALIST_REGISTRY|SPECIALIST_TASK|MODEL_SCAN|SUBAGENT_REGISTRY|SUBAGENT_CREATE|SUBAGENT_TASK|OS_MAP|SYSTEM_REPORT|MEMORY_REPORT|APP_LIST|WINDOW_REPORT|VIRUS_SCAN|OPTIMISE_SCAN|READ_FILE|LIST_DIR|SEARCH_FILES|FIND_IN_COMPUTER|NATIVE_PDF|NATIVE_PPTX|NATIVE_DOCX|OPEN|CLOSE|WEB_SEARCH|WEB_OPEN|WEB_FETCH|WEB_BROWSE|BROWSER_TOOL|IDE_CONTEXT|IDE_PASTE_RUN|PROJECT_INDEX|MCP_DISCOVER|MCP_BOOTSTRAP|MCP_DRAFT|APP_INTEGRATION|BLENDER_CONTEXT|SCHEDULE_TASK|SHELL|COMMAND|TERMINAL|APPLESCRIPT)\s*\]|```(?:bash|sh|zsh|shell|terminal))",
             re.IGNORECASE
         )
 
@@ -4135,7 +4196,7 @@ NOTES: Generated by KIRA OS from read-only local inspection context.
 
         tags = [
             "HYBRID_ACTIONS",
-            "BRANCH_REGISTRY", "TREE_STATUS", "SANDBOX_PROFILE", "SPECIALIST_REGISTRY", "SPECIALIST_TASK",
+            "BRANCH_REGISTRY", "TREE_STATUS", "TREE_MEMORY", "SANDBOX_PROFILE", "SPECIALIST_REGISTRY", "SPECIALIST_TASK",
             "MODEL_SCAN", "SUBAGENT_REGISTRY", "SUBAGENT_CREATE", "SUBAGENT_TASK",
             "OS_MAP", "SYSTEM_REPORT", "MEMORY_REPORT", "VIRUS_SCAN", "OPTIMISE_SCAN",
             "APP_LIST", "WINDOW_REPORT", "SCREENSHOT_CONTEXT", "NETWORK_REPORT",
@@ -4146,8 +4207,8 @@ NOTES: Generated by KIRA OS from read-only local inspection context.
             "ARCHIVE_PREVIEW", "ZIP_CREATE", "NOTE_DRAFT", "CALENDAR_DRAFT", "REMINDER_DRAFT",
             "NATIVE_PDF", "NATIVE_PPTX", "NATIVE_DOCX", "PDF_TO_PPTX", "WRITE_FILE",
             "APPEND_FILE", "DELETE_PATH", "MOVE_PATH", "OPEN", "CLOSE",
-            "WEB_SEARCH", "WEB_RESEARCH", "WEB_OPEN", "WEB_FETCH", "WEB_BROWSE",
-            "WEB_IMAGE_SEARCH", "WEB_IMAGE_DOWNLOAD",
+            "WEB_SEARCH", "WEB_RESEARCH", "WEB_OPEN", "WEB_FETCH", "WEB_BROWSE", "BROWSER_TOOL",
+            "WEB_IMAGE_SEARCH", "WEB_IMAGE_DOWNLOAD", "IMAGE_GENERATE", "IMAGE_EDIT", "IMAGE_ANALYZE",
             "MCP_SETUP", "MCP_APPLY", "IDE_OPEN", "PROJECT_COMMAND", "SCHEDULE_TASK",
             "PYTHON", "APPLESCRIPT", "SHELL", "COMMAND", "TERMINAL"
         ]
@@ -4175,7 +4236,7 @@ NOTES: Generated by KIRA OS from read-only local inspection context.
         cleaned = str(text or "")
         tags = [
             "HYBRID_ACTIONS",
-            "BRANCH_REGISTRY", "TREE_STATUS", "SANDBOX_PROFILE", "SPECIALIST_REGISTRY", "SPECIALIST_TASK",
+            "BRANCH_REGISTRY", "TREE_STATUS", "TREE_MEMORY", "SANDBOX_PROFILE", "SPECIALIST_REGISTRY", "SPECIALIST_TASK",
             "MODEL_SCAN", "SUBAGENT_REGISTRY", "SUBAGENT_CREATE", "SUBAGENT_TASK",
             "OS_MAP", "SYSTEM_REPORT", "MEMORY_REPORT", "VIRUS_SCAN", "OPTIMISE_SCAN",
             "APP_LIST", "WINDOW_REPORT", "SCREENSHOT_CONTEXT", "NETWORK_REPORT",
@@ -4186,8 +4247,8 @@ NOTES: Generated by KIRA OS from read-only local inspection context.
             "ARCHIVE_PREVIEW", "ZIP_CREATE", "NOTE_DRAFT", "CALENDAR_DRAFT", "REMINDER_DRAFT",
             "NATIVE_PDF", "NATIVE_PPTX", "NATIVE_DOCX", "PDF_TO_PPTX", "WRITE_FILE",
             "APPEND_FILE", "DELETE_PATH", "MOVE_PATH", "OPEN", "CLOSE",
-            "WEB_SEARCH", "WEB_RESEARCH", "WEB_OPEN", "WEB_FETCH", "WEB_BROWSE",
-            "WEB_IMAGE_SEARCH", "WEB_IMAGE_DOWNLOAD",
+            "WEB_SEARCH", "WEB_RESEARCH", "WEB_OPEN", "WEB_FETCH", "WEB_BROWSE", "BROWSER_TOOL",
+            "WEB_IMAGE_SEARCH", "WEB_IMAGE_DOWNLOAD", "IMAGE_GENERATE", "IMAGE_EDIT", "IMAGE_ANALYZE",
             "MCP_SETUP", "MCP_APPLY", "IDE_OPEN", "PROJECT_COMMAND", "SCHEDULE_TASK",
             "PYTHON", "APPLESCRIPT", "SHELL", "COMMAND", "TERMINAL"
         ]
@@ -4239,12 +4300,15 @@ NOTES: Generated by KIRA OS from read-only local inspection context.
                 active_tags = {tag.upper() for tag in re.findall(r"\[\s*([A-Za-z_]+)\s*\]", str(response_text or ""))}
             return not active_tags.isdisjoint(tags)
 
-        if has_tags("BRANCH_REGISTRY", "TREE_STATUS", "SANDBOX_PROFILE", "MODEL_SCAN", "SUBAGENT_REGISTRY", "SUBAGENT_CREATE", "SUBAGENT_TASK", "OS_MAP", "SYSTEM_REPORT", "APP_LIST", "WINDOW_REPORT", "SCREENSHOT_CONTEXT", "NETWORK_REPORT", "MEMORY_REPORT", "VIRUS_SCAN", "OPTIMISE_SCAN", "IDE_CONTEXT", "PROJECT_INDEX", "MCP_DISCOVER", "MCP_BOOTSTRAP", "MCP_DRAFT", "APP_INTEGRATION", "BLENDER_CONTEXT"):
+        if has_tags("BRANCH_REGISTRY", "TREE_STATUS", "TREE_MEMORY", "SANDBOX_PROFILE", "MODEL_SCAN", "SUBAGENT_REGISTRY", "SUBAGENT_CREATE", "SUBAGENT_TASK", "OS_MAP", "SYSTEM_REPORT", "APP_LIST", "WINDOW_REPORT", "SCREENSHOT_CONTEXT", "NETWORK_REPORT", "MEMORY_REPORT", "VIRUS_SCAN", "OPTIMISE_SCAN", "IDE_CONTEXT", "PROJECT_INDEX", "MCP_DISCOVER", "MCP_BOOTSTRAP", "MCP_DRAFT", "APP_INTEGRATION", "BLENDER_CONTEXT"):
             response_text = self._run_os_surface_tools(response_text, chat_id)
         response_text = self._run_read_tools(response_text, chat_id)
         response_text = self._run_find_in_computer_blocks(response_text, chat_id)
         response_text = self._run_utility_tools(response_text, chat_id)
         response_text = self._run_web_search_tools(response_text, raw_prompt, chat_id)
+        response_text = self._run_image_generation_blocks(response_text, chat_id)
+        response_text = self._run_image_edit_blocks(response_text, chat_id)
+        response_text = self._run_image_analysis_blocks(response_text, chat_id)
         if has_tags("SPECIALIST_REGISTRY", "SPECIALIST_TASK"):
             response_text = self._run_specialist_tools(response_text, chat_id, raw_prompt)
         response_text = self._generate_native_pdf(response_text)
@@ -4354,6 +4418,12 @@ NOTES: Generated by KIRA OS from read-only local inspection context.
             self.last_agentic_intent = "tree_status"
             self.last_agentic_result = result
             response_text = self._replace_block_once(response_text, "TREE_STATUS", block, result)
+
+        for block in self._extract_blocks(response_text, "TREE_MEMORY"):
+            result = self._tree_memory_tool(chat_id, block)
+            self.last_agentic_intent = "tree_memory"
+            self.last_agentic_result = result
+            response_text = self._replace_block_once(response_text, "TREE_MEMORY", block, result)
 
         for block in self._extract_blocks(response_text, "SANDBOX_PROFILE"):
             result = self._sandbox_profile_report_tool()
@@ -4503,7 +4573,7 @@ NOTES: Generated by KIRA OS from read-only local inspection context.
     def _branch_registry_tool(self):
         specialists = self._specialist_hub().registry()
         registry = {
-            "version": "tree-4",
+            "version": "tree-5",
             "principle": "Branch out for independent evidence/workers; branch in through verified evidence before any final answer.",
             "root": {
                 "name": "KIRA_OS_TREE",
@@ -4523,7 +4593,7 @@ NOTES: Generated by KIRA OS from read-only local inspection context.
                 {
                     "name": "evidence",
                     "purpose": "Hold the task ledger, tool outputs, generated file paths, errors, and confidence signals.",
-                    "leaves": ["TREE_STATUS", "BRANCH_REGISTRY", "SANDBOX_PROFILE"],
+                    "leaves": ["TREE_STATUS", "TREE_MEMORY", "BRANCH_REGISTRY", "SANDBOX_PROFILE"],
                     "sandbox": "tree",
                     "parallel": True
                 },
@@ -4537,7 +4607,7 @@ NOTES: Generated by KIRA OS from read-only local inspection context.
                 {
                     "name": "research",
                     "purpose": "Fetch real web evidence, page text, links, and source context before synthesis.",
-                    "leaves": ["WEB_SEARCH", "WEB_RESEARCH", "WEB_OPEN", "WEB_FETCH", "WEB_BROWSE", "WEB_IMAGE_SEARCH", "WEB_IMAGE_DOWNLOAD"],
+                    "leaves": ["WEB_SEARCH", "WEB_RESEARCH", "WEB_OPEN", "WEB_FETCH", "WEB_BROWSE", "BROWSER_TOOL", "WEB_IMAGE_SEARCH", "WEB_IMAGE_DOWNLOAD"],
                     "sandbox": "web",
                     "parallel": True
                 },
@@ -4656,6 +4726,23 @@ NOTES: Generated by KIRA OS from read-only local inspection context.
             f"Registered subagents: `{len(registry.get('subagents', []))}`\n"
             "```\n" + "\n".join(branch_lines) + "\n```"
         )
+
+    def _tree_memory_tool(self, chat_id, block=""):
+        memory = getattr(self, "tree_memory", None)
+        if memory is None or not chat_id:
+            return "TREE_MEMORY: No execution memory for this chat."
+        try:
+            run_id = memory.latest_tree(chat_id)
+            if not run_id:
+                return "TREE_MEMORY: No execution tree has run in this chat."
+            event_match = re.search(r"(?im)^\s*EVENT\s*:\s*(\d+)\s*$", str(block or ""))
+            if event_match:
+                offset_match = re.search(r"(?im)^\s*OFFSET\s*:\s*(\d+)\s*$", str(block or ""))
+                offset = int(offset_match.group(1)) if offset_match else 0
+                return memory.tree_event(chat_id, run_id, int(event_match.group(1)), offset=offset)
+            return "TREE_MEMORY:\n" + memory.tree_context(chat_id, run_id, max_chars=4500)
+        except Exception as exc:
+            return f"TREE_MEMORY ERROR: {type(exc).__name__}."
 
     def _sandbox_profile_report_tool(self):
         modes = {
@@ -5677,11 +5764,8 @@ if __name__ == "__main__":
             f"Suggested target: `{target}` -> `{target_path}`\n\n"
             "This draft gives an MCP host read access to KIRA's project/workspace roots. "
             "It does not install or apply anything yet.\n\n"
-            "To apply it, Orchestrator should request:\n"
-            "[MCP_APPLY]\n"
-            f"DRAFT: {draft_path}\n"
-            f"TARGET: {target}\n"
-            "[/MCP_APPLY]"
+            "Applying the draft requires a separate user request and KIRA permission review. "
+            f"Draft: `{draft_path}`; target: `{target}`."
         )
 
     def _generate_native_pdf(self, response_text):
@@ -5707,7 +5791,8 @@ if __name__ == "__main__":
                 image_notes = []
 
                 def latin1(value):
-                    return str(value or "").encode("latin-1", "replace").decode("latin-1")
+                    clean = str(value or "").replace("**", "").replace("__", "")
+                    return clean.encode("latin-1", "replace").decode("latin-1")
 
                 for raw_line in content.splitlines():
                     line = raw_line.strip()
@@ -5736,7 +5821,7 @@ if __name__ == "__main__":
 
                             with Image.open(image_path) as opened:
                                 width_px, height_px = opened.size
-                            if pdf.page_break_trigger - pdf.get_y() < 48:
+                            if pdf.page_break_trigger - pdf.get_y() < 100:
                                 pdf.add_page()
                             max_width = pdf.w - pdf.l_margin - pdf.r_margin
                             max_height = min(92, pdf.page_break_trigger - pdf.get_y() - 4)
@@ -5756,6 +5841,7 @@ if __name__ == "__main__":
                                 h=draw_height,
                             )
                             pdf.set_y(draw_y + draw_height + 5)
+                            pdf.set_x(pdf.l_margin)
                         except Exception as image_error:
                             image_notes.append(f"Image embed failed ({image_source}): {image_error}")
                         continue
@@ -5777,13 +5863,16 @@ if __name__ == "__main__":
                     if heading_match:
                         level = len(heading_match.group(1))
                         pdf.set_font("Arial", "B", 15 if level == 1 else 13)
+                        pdf.set_x(pdf.l_margin)
                         pdf.multi_cell(0, 8, latin1(heading_match.group(2)))
                         pdf.ln(1)
                     elif re.match(r"^[-*]\s+", line):
                         pdf.set_font("Arial", "", 11)
+                        pdf.set_x(pdf.l_margin)
                         pdf.multi_cell(0, 7, "- " + latin1(re.sub(r"^[-*]\s+", "", line)))
                     else:
                         pdf.set_font("Arial", "", 11)
+                        pdf.set_x(pdf.l_margin)
                         pdf.multi_cell(0, 7, latin1(line))
                 pdf.output(filename)
 
@@ -5990,7 +6079,7 @@ if __name__ == "__main__":
             prs.slide_width = Inches(13.333)
             prs.slide_height = Inches(7.5)
 
-            dark = theme not in {"light", "white", "simple"}
+            dark = not bool(re.search(r"\b(?:light|white|simple)\b", theme))
             bg = RGBColor(13, 15, 18) if dark else RGBColor(248, 250, 252)
             fg = RGBColor(238, 242, 247) if dark else RGBColor(24, 28, 35)
             muted = RGBColor(165, 179, 199) if dark else RGBColor(86, 99, 117)
@@ -6027,10 +6116,11 @@ if __name__ == "__main__":
                 p.font.color.rgb = color or fg
                 return box
 
-            def add_body_text(slide, text, has_image=False, has_table=False):
+            def add_body_text(slide, text, has_image=False, has_table=False, image_on_left=False):
                 width = 7.05 if has_image else 11.75
                 height = 3.05 if has_table else 4.7
-                box = slide.shapes.add_textbox(Inches(0.75), Inches(1.45), Inches(width), Inches(height))
+                left = 5.45 if has_image and image_on_left else 0.75
+                box = slide.shapes.add_textbox(Inches(left), Inches(1.45), Inches(width), Inches(height))
                 tf = box.text_frame
                 tf.word_wrap = True
                 tf.clear()
@@ -6054,20 +6144,12 @@ if __name__ == "__main__":
                 add_textbox(slide, Inches(0.75), Inches(7.05), Inches(10.5), Inches(0.22), "KIRA OS  /  Orchestrator V1", 9, False, muted)
                 add_textbox(slide, Inches(12.0), Inches(7.02), Inches(0.55), Inches(0.25), str(number), 9, False, muted)
 
-            def add_picture_fit(slide, image_path):
-                left, top, max_w, max_h = 8.15, 1.40, 4.55, 4.90
+            def add_picture_fit(slide, image_path, image_on_left=False):
+                left, top, max_w, max_h = (0.75 if image_on_left else 8.15), 1.40, 4.55, 4.90
                 try:
                     from PIL import Image
                     with Image.open(image_path) as image:
                         iw, ih = image.size
-                    frame = slide.shapes.add_shape(
-                        1, Inches(left - 0.04), Inches(top - 0.04),
-                        Inches(max_w + 0.08), Inches(max_h + 0.08)
-                    )
-                    frame.fill.solid()
-                    frame.fill.fore_color.rgb = RGBColor(26, 30, 36) if dark else RGBColor(226, 232, 240)
-                    frame.line.color.rgb = muted
-
                     source_ratio = iw / max(ih, 1)
                     frame_ratio = max_w / max_h
                     if source_ratio > frame_ratio:
@@ -6080,6 +6162,13 @@ if __name__ == "__main__":
                         picture_w = max_h * source_ratio
                         picture_left = left + ((max_w - picture_w) / 2.0)
                         picture_top = top
+                    frame = slide.shapes.add_shape(
+                        1, Inches(picture_left - 0.04), Inches(picture_top - 0.04),
+                        Inches(picture_w + 0.08), Inches(picture_h + 0.08)
+                    )
+                    frame.fill.solid()
+                    frame.fill.fore_color.rgb = RGBColor(26, 30, 36) if dark else RGBColor(226, 232, 240)
+                    frame.line.color.rgb = muted
                     slide.shapes.add_picture(
                         image_path,
                         Inches(picture_left),
@@ -6187,13 +6276,35 @@ if __name__ == "__main__":
             created = 0
             embedded_images = 0
             image_notes = []
+            cover_image_source = fields.get("cover_image", "").strip()
+            if len(slide_chunks) > 1:
+                first_title = slide_chunks[1].splitlines()[0].strip()
+                if re.match(r"(?i)^(?:\d+(?:\s*/\s*\d+)?\s*[-–:]\s*)?(?:cover|title(?: slide)?)\b",
+                            first_title):
+                    cover_chunk = slide_chunks.pop(1)
+                    if not cover_image_source:
+                        cover_match = re.search(r"(?im)^IMAGE:\s*(.+)$", cover_chunk)
+                        cover_image_source = cover_match.group(1).strip() if cover_match else ""
+
+            cover_image_path = ""
+            if cover_image_source:
+                cover_image_path, cover_image_note = self._materialize_pptx_image(cover_image_source, "Cover")
+                if cover_image_note:
+                    image_notes.append(cover_image_note)
 
             title_slide = prs.slides.add_slide(prs.slide_layouts[6])
             set_background(title_slide)
             title_size = 40 if len(title) > 58 else 46 if len(title) > 38 else 52
-            add_textbox(title_slide, Inches(0.75), Inches(1.95), Inches(11.8), Inches(1.65), title, title_size, True, accent)
+            title_width = 6.7 if cover_image_path else 11.8
+            add_textbox(title_slide, Inches(0.75), Inches(1.95), Inches(title_width), Inches(1.65), title, title_size, True, accent)
             if subtitle:
-                add_textbox(title_slide, Inches(0.78), Inches(3.8), Inches(11.5), Inches(0.75), subtitle, 22, False, muted)
+                add_textbox(title_slide, Inches(0.78), Inches(3.8), Inches(title_width), Inches(0.75), subtitle, 22, False, muted)
+            if cover_image_path and os.path.exists(cover_image_path):
+                try:
+                    add_picture_fit(title_slide, cover_image_path)
+                    embedded_images += 1
+                except Exception as error:
+                    image_notes.append(f"Cover image embed failed for {cover_image_path}: {error}")
             created += 1
 
             if len(slide_chunks) <= 1:
@@ -6213,6 +6324,7 @@ if __name__ == "__main__":
             for chunk in slide_chunks[1:]:
                 lines = chunk.splitlines()
                 slide_title = lines[0].strip() if lines else "Slide"
+                slide_title = re.sub(r"^\d+(?:\s*/\s*\d+)?\s*[-–:]\s*", "", slide_title).strip() or "Slide"
                 body = ""
 
                 body_match = re.search(r"(?is)BODY:\s*(.*?)(?:\n(?:BULLET|IMAGE|TABLE|NOTES|LAYOUT|LINK):|\Z)", chunk)
@@ -6232,6 +6344,12 @@ if __name__ == "__main__":
                         image_notes.append(image_note)
                 table_match = re.search(r"(?is)TABLE:\s*(.*?)(?:\n(?:IMAGE|NOTES|BODY|SLIDE):|\Z)", chunk)
                 table_text = table_match.group(1).strip() if table_match else ""
+                layout_match = re.search(r"(?im)^LAYOUT:\s*(.*)$", chunk)
+                layout = layout_match.group(1).strip().lower() if layout_match else ""
+                image_on_left = bool(image_path) and (
+                    layout in {"image-left", "image left", "left-image"}
+                    or (not layout and created % 2 == 0)
+                )
                 notes_match = re.search(r"(?is)NOTES:\s*(.*?)(?:\n(?:IMAGE|TABLE|BODY|SLIDE):|\Z)", chunk)
                 notes = notes_match.group(1).strip() if notes_match else ""
                 link_entries = []
@@ -6247,13 +6365,13 @@ if __name__ == "__main__":
                 slide = prs.slides.add_slide(prs.slide_layouts[6])
                 set_background(slide)
                 add_textbox(slide, Inches(0.6), Inches(0.42), Inches(12.1), Inches(0.82), slide_title, 34, True, accent)
-                add_body_text(slide, body, has_image=bool(image_path), has_table=bool(table_text))
+                add_body_text(slide, body, has_image=bool(image_path), has_table=bool(table_text), image_on_left=image_on_left)
                 add_table(slide, table_text)
                 add_links(slide, link_entries)
 
                 if image_path and os.path.exists(image_path):
                     try:
-                        add_picture_fit(slide, image_path)
+                        add_picture_fit(slide, image_path, image_on_left=image_on_left)
                         embedded_images += 1
                     except Exception as e:
                         image_notes.append(f"Image embed failed for {image_path}: {e}")
@@ -6718,10 +6836,222 @@ if __name__ == "__main__":
             path, error = self._download_web_image(target, title=title)
             logs.append(f"WEB_IMAGE_DOWNLOAD:\nSource: `{target}`\nPath: `{path}`" if path else f"WEB_IMAGE_DOWNLOAD ERROR: {error}")
 
+        browser_args = {
+            "search": {"query": "query", "limit": "limit"},
+            "navigate": {"url": "url", "tabid": "tabId"},
+            "new_tab": {"url": "url"},
+            "list_tabs": {},
+            "back": {"tabid": "tabId"},
+            "forward": {"tabid": "tabId"},
+            "reload": {"tabid": "tabId"},
+            "select_tab": {"tabid": "tabId"},
+            "snapshot": {"tabid": "tabId"},
+            "observe": {"tabid": "tabId", "screenshot": "screenshot"},
+            "act": {"operation": "operation", "tabid": "tabId", "url": "url", "target_role": "role", "target_name": "targetName", "selector": "selector", "index": "index", "text": "text", "value": "value", "key": "key", "pixels": "pixels", "x": "x", "y": "y", "observation_id": "observationId"},
+            "list_email_profiles": {},
+            "use_email_profile": {"nickname": "nickname", "tabid": "tabId"},
+            "begin_login": {"url": "url", "tabid": "tabId"},
+            "finish_login": {"save": "save"},
+            "inspect_page": {"tabid": "tabId"},
+            "scroll": {"pixels": "pixels", "tabid": "tabId"},
+            "wait_for": {"selector": "selector", "tabid": "tabId"},
+            "click": {"selector": "selector", "index": "index", "text": "text", "tabid": "tabId"},
+            "fill": {"selector": "selector", "index": "index", "value": "value", "tabid": "tabId"},
+            "press": {"key": "key", "tabid": "tabId"},
+            "screenshot": {"tabid": "tabId", "name": "name", "fullpage": "fullPage"},
+            "start_recording": {"tabid": "tabId"},
+            "stop_recording": {"name": "name"},
+            "close_tab": {"tabid": "tabId"},
+        }
+        for block in self._extract_blocks(response_text, "BROWSER_TOOL"):
+            fields = self._parse_fields(block)
+            action = fields.get("action", "").strip().lower()
+            if action not in browser_args:
+                logs.append(f"BROWSER_TOOL ERROR: Unknown action `{action}`.")
+                continue
+            arguments = {target: fields[key] for key, target in browser_args[action].items() if key in fields}
+            if "limit" in arguments:
+                try:
+                    arguments["limit"] = int(arguments["limit"])
+                except ValueError:
+                    arguments["limit"] = 5
+            if "fullPage" in arguments:
+                arguments["fullPage"] = arguments["fullPage"].lower() not in {"0", "false", "no"}
+            if "screenshot" in arguments:
+                arguments["screenshot"] = arguments["screenshot"].lower() not in {"0", "false", "no"}
+            if "save" in arguments:
+                arguments["save"] = arguments["save"].lower() not in {"0", "false", "no"}
+            if "pixels" in arguments:
+                try:
+                    arguments["pixels"] = int(arguments["pixels"])
+                except ValueError:
+                    logs.append("BROWSER_TOOL ERROR: PIXELS must be an integer from -1600 to 1600, excluding zero.")
+                    continue
+                if arguments["pixels"] == 0 or not -1600 <= arguments["pixels"] <= 1600:
+                    logs.append("BROWSER_TOOL ERROR: PIXELS must be an integer from -1600 to 1600, excluding zero.")
+                    continue
+            if "index" in arguments:
+                try:
+                    arguments["index"] = int(arguments["index"])
+                except ValueError:
+                    logs.append("BROWSER_TOOL ERROR: INDEX must be an integer from the latest snapshot.")
+                    continue
+            for coordinate in ("x", "y"):
+                if coordinate in arguments:
+                    try:
+                        arguments[coordinate] = int(arguments[coordinate])
+                    except ValueError:
+                        logs.append(f"BROWSER_TOOL ERROR: {coordinate.upper()} must be an integer from the latest visual map.")
+                        arguments = None
+                        break
+            if arguments is None:
+                continue
+            if action in {"act", "click"} and arguments.get("operation", "click").lower() == "click":
+                target = " ".join(str(arguments.get(key, "")) for key in ("targetName", "text", "selector"))
+                # Opening checkout is preparation; only the final payment/order action needs authorization.
+                purchase_target = re.search(r"\b(submit purchase|place order|buy now|pay now|complete (?:purchase|order|payment)|confirm (?:purchase|order|payment))\b", target, re.IGNORECASE)
+                purchase_request = re.search(
+                    r"\b(?:submit|place|complete|confirm)\b.{0,40}\b(?:purchase|order|payment|checkout)\b"
+                    r"|\b(?:buy|purchase|order)\s+(?:this|these|the|my)\b"
+                    r"|\bpay\s+(?:this|the|my)\s+invoice\b",
+                    raw_prompt or "", re.IGNORECASE)
+                purchase_denial = re.search(r"\b(do not|don't|without|never)\b.{0,50}\b(submit|place|buy|pay|complete)\b", raw_prompt or "", re.IGNORECASE)
+                purchase_condition = re.search(
+                    r"\b(?:ask|check|confirm)\s+(?:with\s+)?me\s+before\b.{0,50}\b(?:submit|plac\w*|buy|pay|purchas\w*|order\w*)\b",
+                    raw_prompt or "", re.IGNORECASE)
+                if purchase_target and (not purchase_request or purchase_denial or purchase_condition):
+                    if purchase_denial:
+                        logs.append("BROWSER_TOOL ERROR: The user instructed Kira not to submit this purchase or payment. Continue without that action; do not ask again for it in this task.")
+                    else:
+                        logs.append("BROWSER_TOOL ERROR: Explicit user authorization is required before submitting a purchase or payment. Ask once at this final step; continue any safe preparatory work autonomously.")
+                    if hasattr(self, "_log_agentic_event"):
+                        self._log_agentic_event("browser_tool_decision", {
+                            "chat_id": chat_id, "action": action,
+                            "operation": "click", "success": False,
+                            "reason": "unapproved_purchase_action",
+                        })
+                    continue
+            try:
+                from diagonal_browser.kira_client import call_browser_tool
+                from diagonal_browser.result_projection import render_browser_result
+                result = call_browser_tool(action, arguments)
+                label = "BROWSER_TOOL ERROR:\n" if isinstance(result, dict) and isinstance(result.get("status"), int) and result["status"] >= 400 else "BROWSER_TOOL:\n"
+                if hasattr(self, "_log_agentic_event"):
+                    self._log_agentic_event("browser_tool_decision", {
+                        "chat_id": chat_id,
+                        "action": action,
+                        "operation": arguments.get("operation"),
+                        "tab_id": arguments.get("tabId"),
+                        "observation_id": arguments.get("observationId"),
+                        "result_observation_id": result.get("observationId") if isinstance(result, dict) else None,
+                        "success": label == "BROWSER_TOOL:\n",
+                    })
+                logs.append(label + render_browser_result(result))
+            except Exception as error:
+                if hasattr(self, "_log_agentic_event"):
+                    self._log_agentic_event("browser_tool_decision", {
+                        "chat_id": chat_id,
+                        "action": action,
+                        "operation": arguments.get("operation"),
+                        "tab_id": arguments.get("tabId"),
+                        "observation_id": arguments.get("observationId"),
+                        "success": False,
+                        "error_type": type(error).__name__,
+                    })
+                logs.append(f"BROWSER_TOOL ERROR: {error}")
+
         if logs:
             response_text += "\n\n" + "\n\n".join(logs)
 
         return response_text
+
+
+    def _run_image_generation_blocks(self, response_text, chat_id=None):
+        from orchestrator_v15.z_image_tool import generate_image
+        for block in self._extract_blocks(response_text, "IMAGE_GENERATE"):
+            fields = self._parse_fields(block)
+            try:
+                path = generate_image(fields.get('prompt', ''), self.agentic_workspace,
+                                      self.app_root, seed=fields.get('seed', 42))
+                result = f'IMAGE_GENERATED:\nPath: `{path}`\nModel: Z-Image Turbo Q4 (MLX)'
+            except Exception as error:
+                result = f'IMAGE_GENERATE error: {type(error).__name__}: {error}'
+            self.last_agentic_intent = 'image_generate'
+            self.last_agentic_result = result
+            response_text = self._replace_block_once(response_text, 'IMAGE_GENERATE', block, result)
+        return response_text
+
+    def _run_image_edit_blocks(self, response_text, chat_id=None):
+        from orchestrator_v15.z_image_tool import edit_image
+        for block in self._extract_blocks(response_text, "IMAGE_EDIT"):
+            fields = self._parse_fields(block)
+            try:
+                source = self._resolve_path(str(fields.get('path', '')).strip().strip('`'))
+                mask = self._resolve_path(str(fields['mask']).strip().strip('`')) if fields.get('mask') else None
+                path = edit_image(fields.get('prompt', ''), source, self.agentic_workspace,
+                                  self.app_root, strength=fields.get('strength', 0.4),
+                                  mask=mask, region=fields.get('region'), seed=fields.get('seed', 42))
+                result = f'IMAGE_EDITED:\nPath: `{path}`\nSource: `{source}`\nModel: Z-Image Turbo Q4 (MLX)'
+            except Exception as error:
+                result = f'IMAGE_EDIT error: {type(error).__name__}: {error}'
+            self.last_agentic_intent = 'image_edit'
+            self.last_agentic_result = result
+            response_text = self._replace_block_once(response_text, 'IMAGE_EDIT', block, result)
+        return response_text
+
+    def _run_image_analysis_blocks(self, response_text, chat_id=None):
+        for block in self._extract_blocks(response_text, "IMAGE_ANALYZE"):
+            fields = self._parse_fields(block)
+            raw_path, question = self._image_analysis_request(fields)
+            try:
+                if not raw_path:
+                    raise ValueError("PATH is required")
+                image_path = self._resolve_path(raw_path)
+                if not os.path.isfile(image_path):
+                    raise FileNotFoundError(image_path)
+                if os.path.splitext(image_path)[1].lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}:
+                    raise ValueError("only common raster image files can be analyzed")
+                if os.path.getsize(image_path) > 20 * 1024 * 1024:
+                    raise ValueError("image exceeds the 20 MiB analysis limit")
+                interpreter = os.path.join(self.app_root, ".venv-orchestrator-v15-vision", "bin", "python")
+                script = os.path.join(self.app_root, "scripts", "analyze_image_with_gemma4.py")
+                command = [interpreter, script, "--image", image_path, "--question", question]
+                manifest_path = os.path.join(self.app_root, "training_runs", "orchestrator_v15",
+                                             "gated_control_browser_20261008", "manifest.json")
+                try:
+                    with open(manifest_path, encoding="utf-8") as handle:
+                        adapter = json.load(handle).get("vision_adapter_checkpoint")
+                    if adapter:
+                        adapter_path = os.path.dirname(adapter) if os.path.isfile(adapter) else adapter
+                        if os.path.isdir(adapter_path):
+                            command.extend(["--adapter", adapter_path])
+                except (OSError, ValueError):
+                    pass
+                env = os.environ.copy()
+                env["HF_HUB_OFFLINE"] = "1"
+                env["TRANSFORMERS_OFFLINE"] = "1"
+                run = subprocess.run(command, cwd=self.app_root, capture_output=True, text=True,
+                                     timeout=120, env=env)
+                if run.returncode:
+                    detail = self._truncate((run.stderr or run.stdout).strip(), 2500)
+                    result = f"IMAGE_ANALYZE error for {image_path}: {detail}"
+                else:
+                    result = self._truncate(run.stdout.strip(), 6000)
+            except Exception as error:
+                result = f"IMAGE_ANALYZE error: {type(error).__name__}: {error}"
+            self.last_agentic_intent = "image_analyze"
+            self.last_agentic_result = result
+            response_text = self._replace_block_once(response_text, "IMAGE_ANALYZE", block, result)
+        return response_text
+
+    @staticmethod
+    def _image_analysis_request(fields):
+        """Accept the path/task labels emitted by both Kira and model tool formats."""
+        raw_path = next((fields.get(key) for key in ("path", "image", "target", "url") if fields.get(key)), "")
+        question = next((fields.get(key) for key in ("question", "task", "run") if fields.get(key)), None)
+        raw_path = str(raw_path).strip().strip('`"\'')
+        question = str(question or "Analyze this image for factual content and presentation design.")
+        return raw_path, question
 
 
     def _run_utility_tools(self, response_text, chat_id):
@@ -9308,52 +9638,29 @@ if __name__ == "__main__":
     def _create_mcp_config_draft(self, payload):
         name = self._safe_filename(payload.get("name", "kira_connector"), "kira_connector")
         command = str(payload.get("command", "")).strip()
-
-        if not command:
-            return "MCP setup needs a COMMAND field."
-
-        try:
-            args = json.loads(payload.get("args_json") or "[]")
-            if not isinstance(args, list):
-                args = []
-        except Exception:
-            args = []
-
-        try:
-            env = json.loads(payload.get("env_json") or "{}")
-            if not isinstance(env, dict):
-                env = {}
-        except Exception:
-            env = {}
-
         raw_config = str(payload.get("config_json", "")).strip()
-
         if raw_config:
             try:
                 config = json.loads(raw_config)
-            except Exception:
-                config = {
-                    "mcpServers": {
-                        name: {"command": command, "args": args, "env": env}
-                    },
-                    "note": "CONFIG_JSON could not be parsed, generated fallback config."
-                }
+                servers = config.get('mcpServers') if isinstance(config, dict) else None
+                if not isinstance(servers, dict) or len(servers) != 1:
+                    return 'MCP draft rejected: CONFIG_JSON must contain exactly one mcpServers entry.'
+                name, server = next(iter(servers.items()))
+                if not isinstance(server, dict):
+                    return 'MCP draft rejected: server config must be an object.'
+                command = str(server.get('command', '')).strip()
+                args_json = json.dumps(server.get('args', []))
+                env_json = json.dumps(server.get('env', {}))
+            except (ValueError, TypeError):
+                return 'MCP draft rejected: CONFIG_JSON is invalid JSON.'
         else:
-            config = {
-                "mcpServers": {
-                    name: {"command": command, "args": args, "env": env}
-                }
-            }
-
-        draft_path = self._unique_path(os.path.join(self.mcp_workspace, f"{name}.mcp.json"))
-
-        with open(draft_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
-
-        return (
-            f"MCP connector draft created: `{draft_path}`\n"
-            "I did not install packages or modify global MCP settings."
-        )
+            args_json = str(payload.get('args_json') or '[]')
+            env_json = str(payload.get('env_json') or '{}')
+        result = self.create_mcp_draft(name, command, args_json, env_json)
+        if not result.get('ok'):
+            return 'MCP draft rejected: ' + str(result.get('error', 'invalid connector configuration'))
+        return (f"MCP connector draft created: `{result['path']}`\n"
+                'I did not install packages or modify global MCP settings.')
 
     def _virus_scan_tool(self, path, max_files=900):
         scan_path = self._resolve_path(path or "downloads")

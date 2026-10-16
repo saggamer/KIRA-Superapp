@@ -48,7 +48,7 @@ class SpecialistAgentTests(unittest.TestCase):
         tree = self.actions._branch_registry_tool()
         self.assertIn("slides: Slides Agent", registry)
         self.assertIn("artifact_verifier: Artifact Verifier", registry)
-        self.assertIn("tree-4", (self.root / "architect" / "kira_tree_branch_registry.json").read_text())
+        self.assertIn("tree-5", (self.root / "architect" / "kira_tree_branch_registry.json").read_text())
         self.assertIn("specialists", tree)
 
     def test_research_and_media_specialists_run_in_parallel(self):

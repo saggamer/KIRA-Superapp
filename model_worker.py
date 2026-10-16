@@ -209,6 +209,7 @@ def main():
     tokenizer = None
     current_brain = None
     kira_native_thinker = False
+    v15_router = None
 
     for raw_line in sys.stdin:
         raw_line = raw_line.strip()
@@ -228,10 +229,11 @@ def main():
             if request_type == "load":
                 current_brain = request.get("brain", "")
                 kira_native_thinker = False
+                v15_router = None
                 # Fused Orchestrator checkpoints use KIRA's lightweight tokenizer
                 # shim. Qwen3.5 and its LoRA adapter need the full Transformers
                 # tokenizer/detokenizer contract supplied by MLX-LM.
-                if current_brain != "kira":
+                if current_brain == "orchestrator":
                     install_fast_transformers_shim()
                 clear_mlx_cache()
                 gc.collect()
@@ -241,7 +243,38 @@ def main():
                 thinker_addons_path = request.get("thinker_addons_path") or None
                 thinker_continuation_path = request.get("thinker_continuation_path") or None
                 expert_rank = int(request.get("expert_rank") or 128)
-                if current_brain == "kira" and thinker_addons_path:
+                if current_brain == "orchestrator_v15":
+                    from pathlib import Path
+                    import mlx.core as mx
+                    from mlx_lm import load
+                    from orchestrator_v15.adapter_router import AdapterRouter, manifest_root
+                    from orchestrator_v15.moe import attach
+
+                    root = Path(__file__).resolve().parent
+                    manifest = json.loads(Path(request["manifest_path"]).read_text())
+                    asset_root = manifest_root(request["manifest_path"], manifest, root)
+                    v15_router = AdapterRouter(asset_root / manifest["control_checkpoint"],
+                                               asset_root / manifest["browser_checkpoint"],
+                                               (asset_root / manifest["presentation_checkpoint"]
+                                                if manifest.get("presentation_checkpoint") else None),
+                                               (asset_root / manifest["mcp_checkpoint"]
+                                                if manifest.get("mcp_checkpoint") else None),
+                                               (asset_root / manifest["coding_checkpoint"]
+                                                if manifest.get("coding_checkpoint") else None))
+                    arch = v15_router.architecture
+                    base_snapshot = (str(asset_root / 'base') if
+                                     arch.get('base_snapshot') == '__BUNDLE_BASE__' else
+                                     arch['base_snapshot'])
+                    model, tokenizer = load(base_snapshot, lazy=False)
+                    attach(model, layers=tuple(arch["layers"]),
+                           experts=arch["routed_experts_per_layer"], ceiling=arch["ceiling"],
+                           top_k=arch.get("selected_per_token", 2),
+                           preserve_top2=arch.get("preserve_top2_residual", False),
+                           legacy_experts=arch.get("legacy_experts_for_primary_route", 0))
+                    mx.set_cache_limit(256 * 1024**2)
+                    mx.set_memory_limit(18 * 1024**3)
+                    v15_router.activate(model, request.get("user_request", ""))
+                elif current_brain == "kira" and thinker_addons_path:
                     from kira_live.mlx_thinker import KiraMLXThinker
                     from kira_live.expert_surgery import expert_checkpoint_config
 
@@ -265,10 +298,8 @@ def main():
                         )
                     except TypeError:
                         model, tokenizer = load(model_path, adapter_path=adapter_path)
-                configure_stop_tokens(
-                    tokenizer,
-                    include_runtime_tokens=current_brain != "kira",
-                )
+                if current_brain != "orchestrator_v15":
+                    configure_stop_tokens(tokenizer, include_runtime_tokens=current_brain != "kira")
                 send({
                     "id": request_id,
                     "ok": True,
@@ -323,6 +354,100 @@ def main():
                     )
                 public_content = sanitize_public_output(content, live=True) if current_brain == "kira" else sanitize_generated_content(content)
                 send({"id": request_id, "ok": True, "content": public_content})
+                continue
+
+            if request_type == "finish_v15":
+                if current_brain != "orchestrator_v15" or v15_router is None:
+                    raise RuntimeError("Orchestrator v1.5 is not loaded.")
+                from mlx_lm import generate
+
+                v15_router.activate(model, str(request.get("user_request", "")))
+                app_inventory = request.get("source_kind") == "app_inventory"
+                guidance = (
+                    "Answer the user's app inventory question using only the observed APP_LIST result. "
+                    "Name an exact listed app if the evidence supports one. Do not infer integration "
+                    "support from installation alone. Do not write tool calls or tags."
+                    if app_inventory else
+                    "Answer the user's request using only the observed browser evidence. "
+                    "Give a concrete recommendation only when its title and required facts are "
+                    "supported by that evidence. State uncertainty where evidence is missing. "
+                    "A captured browser screenshot is available when its path appears in the evidence; "
+                    "describe it accurately as a screenshot of the page, not a verified movie poster. "
+                    "Do not write tool calls, tags, planning text, or claim an unverified action.")
+                messages = [
+                    {"role": "system", "content": guidance},
+                    {"role": "user", "content": (
+                        str(request.get("user_request", "")) + "\n\nObserved browser evidence:\n" +
+                        str(request.get("evidence", ""))[:8500])},
+                ]
+                prompt = tokenizer.apply_chat_template(
+                    messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+                content = generate(model, tokenizer, prompt=prompt,
+                                   max_tokens=max(64, min(384, int(request.get("max_tokens", 320)))),
+                                   sampler=create_sampler(0), verbose=False).strip()
+                send({"id": request_id, "ok": True,
+                      "content": sanitize_generated_content(content)})
+                continue
+
+            if request_type == "propose_v15":
+                if current_brain != "orchestrator_v15" or v15_router is None:
+                    raise RuntimeError("Orchestrator v1.5 is not loaded.")
+                from mlx_lm import generate
+                from orchestrator_v15.diagonal_level import BRANCH_LENSES
+                from orchestrator_v15.fast_mlx import generate_closed_proposal
+                from orchestrator_v15.presentation_controller import PRESENTATION_BRANCH_LENSES
+                from orchestrator_v15.structured_thinking import MEMO_INSTRUCTION, parse_memo, memo_prompt
+
+                v15_router.activate(model, str(request.get("user_request", "")))
+                if request.get("diagonal_orchestral_candidate"):
+                    from orchestrator_v15.diagonal_orchestral_candidate import generate_branches
+
+                    candidate = generate_branches(
+                        model, tokenizer, request["messages"],
+                        max_tokens=int(request.get("max_tokens", 256)),
+                        sampler=create_sampler(0.3))
+                    send({"id": request_id, "ok": True,
+                          "candidate": candidate, "proposals": [
+                              item['action'] if item else '' for item in candidate['branches']],
+                          "token_counts": [len(tokenizer.encode(item, add_special_tokens=False))
+                                           for item in candidate['raw_branches']],
+                          "memo_tokens": 0, "memo": None, "channel": v15_router.active})
+                    continue
+                branch_count = max(1, min(3, int(request.get("branches", 1))))
+                token_limit = max(32, min(2048 if request.get("presentation_task") else 768,
+                                          int(request.get("max_tokens", 512))))
+                branch_lenses = PRESENTATION_BRANCH_LENSES if request.get("presentation_task") else BRANCH_LENSES
+                proposals = []
+                token_counts = []
+                memo = None
+                memo_tokens = 0
+                if request.get("structured_thinking"):
+                    planning_messages = [dict(item) for item in request["messages"]]
+                    planning_messages[-1]["content"] += "\n" + MEMO_INSTRUCTION
+                    planning_prompt = tokenizer.apply_chat_template(
+                        planning_messages, tokenize=False, add_generation_prompt=True,
+                        enable_thinking=False)
+                    memo_text = generate(model, tokenizer, prompt=planning_prompt, max_tokens=128,
+                                         sampler=create_sampler(0), verbose=False).strip()
+                    memo_tokens = len(tokenizer.encode(memo_text, add_special_tokens=False))
+                    memo = parse_memo(memo_text)
+                for index in range(branch_count):
+                    messages = [dict(item) for item in request["messages"]]
+                    if memo is not None:
+                        messages[-1]["content"] += memo_prompt(memo)
+                    if branch_lenses[index]:
+                        messages[-1]["content"] += "\nDiagonal review: " + branch_lenses[index]
+                    prompt = tokenizer.apply_chat_template(messages, tokenize=False,
+                                                           add_generation_prompt=True,
+                                                           enable_thinking=False)
+                    answer = generate_closed_proposal(
+                        model, tokenizer, prompt, max_tokens=token_limit,
+                        sampler=create_sampler((0, 0.35, 0.7)[index]))
+                    proposals.append(sanitize_generated_content(answer))
+                    token_counts.append(len(tokenizer.encode(answer, add_special_tokens=False)))
+                send({"id": request_id, "ok": True, "proposals": proposals,
+                      "token_counts": token_counts, "memo_tokens": memo_tokens,
+                      "memo": memo, "channel": v15_router.active})
                 continue
 
             raise RuntimeError("Unknown model worker request type: " + request_type)

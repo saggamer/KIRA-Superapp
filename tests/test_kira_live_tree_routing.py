@@ -69,6 +69,11 @@ class KiraLiveTreeRoutingTests(unittest.TestCase):
         actions.current_brain = "kira"
         self.assertEqual(actions._build_deterministic_agentic_blocks("List files in `/tmp/kira-fixture` without using any tools."), "")
 
+    def test_tree_memory_resume_has_read_only_fallback(self):
+        actions = KiraActionsMixin()
+        actions.current_brain = "kira"
+        self.assertIn("[TREE_MEMORY]", actions._build_deterministic_agentic_blocks("Resume the tree from its execution checkpoint."))
+
     def test_orchestrator_does_not_use_live_read_fallback(self):
         actions = KiraActionsMixin()
         actions.current_brain = "orchestrator"

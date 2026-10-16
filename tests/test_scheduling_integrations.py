@@ -145,6 +145,41 @@ class SchedulingIntegrationsTests(unittest.TestCase):
         self.assertFalse(b._mcp_server_summary('test', {'command': sys.executable, 'args': 'wrong'})['valid'])
         self.assertFalse(b.create_mcp_draft('secret', sys.executable, env_json='{"TOKEN":"plaintext"}')['ok'])
 
+    def test_mcp_draft_status_distinguishes_config_from_running_server(self):
+        b = self.brain
+        draft = b.create_mcp_draft('status-fixture', sys.executable)['path']
+        self.assertIn('inactive', b.describe_mcp_draft_status(draft))
+        target = Path(b.mcp_config_targets['test'])
+        target.write_text(json.dumps({'mcpServers': {'status-fixture': {'command': sys.executable}}}))
+        status = b.describe_mcp_draft_status(draft)
+        self.assertIn('test', status)
+        self.assertIn('does not verify', status)
+
+    def test_mcp_bootstrap_result_cannot_be_reparsed_as_apply_action(self):
+        self.brain.app_root = str(self.root)
+        self.brain.agentic_workspace = str(self.root)
+        self.brain.home_path = str(self.root)
+        result = self.brain._mcp_bootstrap_tool('test')
+        self.assertIn('does not install or apply', result)
+        self.assertNotIn('[MCP_APPLY]', result)
+
+    def test_model_mcp_draft_rejects_invalid_json_and_plaintext_env(self):
+        b = self.brain
+        bad_json = b._create_mcp_config_draft({
+            'name': 'bad', 'command': sys.executable, 'args_json': '[broken', 'env_json': '{}'})
+        self.assertIn('rejected', bad_json)
+        secret = b._create_mcp_config_draft({
+            'name': 'secret', 'command': sys.executable, 'args_json': '[]',
+            'env_json': '{"TOKEN":"plaintext"}'})
+        self.assertIn('rejected', secret)
+        self.assertFalse((self.root / 'bad.json').exists())
+        self.assertFalse((self.root / 'secret.json').exists())
+        ready = b._create_mcp_config_draft({
+            'name': 'fixture', 'command': sys.executable, 'args_json': '["-m", "fixture"]',
+            'env_json': '{"TOKEN":"${MCP_TEST_TOKEN}"}'})
+        self.assertIn('draft created', ready)
+        self.assertTrue((self.root / 'fixture.json').is_file())
+
     def test_mcp_merge_preserves_settings_and_rejects_corrupt_target(self):
         b = self.brain
         draft = b.create_mcp_draft('new-server', sys.executable)['path']

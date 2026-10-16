@@ -37,6 +37,18 @@ Launch KIRA:
 ./superapp
 ```
 
+KIRA Live 1 is available in the model selector for chat, and the **KIRA Live**
+button starts its native spoken conversation. Orchestrator V1 remains a separate
+choice for computer workflows. The old `--kira-live-experimental` launch flag
+remains as a compatibility alias that selects KIRA by default; it is not needed.
+
+Live loads one revision-pinned logical checkpoint bundle: Listener, Thinker,
+Talker, codec, and accepted KIRA additions. These are coordinated weights,
+not a monolithic or jointly trained tensor file. The app releases its idle
+text-model worker before loading Live to avoid duplicate model residency.
+Repeated text inference keeps a bounded MLX cache warm. Audit the actual
+deployed parameter count with `python scripts/audit_kira_live_checkpoint.py`.
+
 ## Download Models Separately
 
 After dependencies are installed:
@@ -99,6 +111,8 @@ Never commit `.env` files or exported credentials.
 
 ## Development
 
+For interactive web research, screenshots, and browser recordings, see [Diagonal Browser](diagonal_browser/README.md). It adds a persistent Playwright MCP service and a Kira `[BROWSER_TOOL]` action backed by the Antigravity bridge's DDG search utility.
+
 Run the focused regression suite:
 
 ```bash
@@ -107,6 +121,15 @@ Run the focused regression suite:
   tests.test_model_storage_selection \
   tests.test_orchestrator_runtime_stability
 ```
+
+See [docs/APP_ARCHITECTURE.md](docs/APP_ARCHITECTURE.md) for the runtime map,
+request flow, safety boundaries, local-data layout, current validation status,
+and the RED v4 model-development handoff.
+
+The realtime model architecture is documented in
+[docs/KIRA_LIVE_1.md](docs/KIRA_LIVE_1.md). Orchestrator v1.5 is an opt-in
+research-preview profile; its weights are distributed separately from this
+source repository.
 
 See [HARNESS_PROVENANCE.md](HARNESS_PROVENANCE.md) for the optional Codex and
 DeepSeek harness integrations and their upstream licenses.

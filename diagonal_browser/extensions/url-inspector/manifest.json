@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Diagonal URL Inspector",
+  "version": "0.1.0",
+  "description": "Inspect the current page and copy compact, structured context for an LLM.",
+  "permissions": ["activeTab", "scripting"],
+  "action": {
+    "default_title": "Inspect page for LLM",
+    "default_popup": "popup.html"
+  }
+}

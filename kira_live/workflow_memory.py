@@ -121,6 +121,9 @@ class PersistentWorkflowMemory:
         safe = _redact(content)
         timestamp = float(created_at if created_at is not None else time.time())
         with self._database() as db:
+            # Reserve the next per-chat sequence atomically. Agent branches and
+            # live voice can append from different threads at the same time.
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT COALESCE(MAX(sequence), 0) + 1 FROM events WHERE chat_id = ?",
                 (chat_id,),

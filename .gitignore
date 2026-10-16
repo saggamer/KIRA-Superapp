@@ -62,6 +62,8 @@ stress_lab/
 # Rebuildable KIRA Live training manifests, checkpoints, and metrics.
 training_data/
 training_runs/
+training_models/
+training_sources/
 
 # Local editor and operating-system state.
 .idea/

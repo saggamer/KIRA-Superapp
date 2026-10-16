@@ -1192,6 +1192,188 @@
         #reminder-alert p { overflow-wrap: anywhere; }
         #reminder-alert button { margin-top: 12px; }
         @media (max-width: 520px) { #schedule-form { grid-template-columns: 1fr; } }
+        /* Workspace design: solid surfaces, warm graphite, consistent control scale. */
+        :root {
+            color-scheme: dark;
+            --workspace-bg: #1d1d1b;
+            --sidebar-bg: #161614;
+            --surface: #252523;
+            --text: #edece8;
+            --muted: #a5a49c;
+            --line: #363632;
+            --accent: #d5b89a;
+            --glass-surface: #252523;
+            --glass-surface-strong: #2b2b28;
+            --glass-border: #3b3b36;
+            --glass-highlight: transparent;
+        }
+        html, body { background: var(--workspace-bg); color: var(--text); }
+        body { background-image: none; font-size: 14px; height: 100vh; height: 100dvh; }
+        button, a, input, select, textarea { touch-action: manipulation; }
+        button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+            outline: 2px solid var(--accent); outline-offset: 3px; box-shadow: none;
+        }
+        button:disabled { cursor: not-allowed; opacity: .45; }
+        button { transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease; }
+        .material-symbols-outlined { font-size: 18px; }
+        aside.sidebar { flex: 0 0 244px; width: 244px; background: var(--sidebar-bg); box-shadow: none; backdrop-filter: none; border-right: 1px solid #2c2c28 !important; }
+        .kira-brand-row { min-height: 72px; margin-top: 0; padding: 20px 20px 14px; justify-content: space-between; }
+        .kira-brand-lockup { display: flex; align-items: center; gap: 10px; }
+        .kira-monogram { width: 29px; height: 29px; display: grid; place-items: center; color: var(--accent); border: 1px solid #51473c; border-radius: 8px; font-family: Georgia, serif; font-size: 21px; }
+        .kira-brand-name { font-size: 15px; font-weight: 650; letter-spacing: .08em; }
+        .kira-brand-product { margin-top: 3px; color: #a5a49c; letter-spacing: .04em; font-size: 10px; font-weight: 400; }
+        .icon-button { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 6px; color: var(--muted); flex: 0 0 auto; }
+        .icon-button:hover { color: var(--text); background: #ffffff09; }
+        .sidebar > .mt-4 { margin-top: 8px; }
+        .new-chat-button { min-height: 37px; justify-content: flex-start; border: 1px solid #3b3b35; border-radius: 7px !important; background: #242421; color: var(--text); box-shadow: none; font-size: 13px; padding: 8px 10px; }
+        .new-chat-button:hover { background: #30302b; }
+        kbd { font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; color: #96968b; border: 1px solid #42423a; padding: 2px 4px; border-radius: 4px; white-space: nowrap; }
+        .new-chat-button kbd { margin-left: auto; border: 0; }
+        .sidebar-search { width: 100%; display: flex; align-items: center; gap: 9px; padding: 10px; margin-top: 5px; color: var(--muted); font-size: 12px; border-radius: 6px; }
+        .sidebar-search:hover { background: #ffffff08; color: var(--text); }
+        .sidebar-search kbd { margin-left: auto; border: 0; }
+        .sidebar .mt-5 { margin-top: 22px; }
+        .sidebar .uppercase { text-transform: none; letter-spacing: .03em; font-size: 10px; font-weight: 500; color: #919187; margin-bottom: 9px; }
+        .workspace-switcher { padding: 0; background: none; border: 0; border-radius: 0; }
+        .mode-btn { min-height: 36px; padding: 8px 11px; border-radius: 6px !important; color: #afafa5; }
+        .mode-btn .text-sm { font-size: 12px; font-weight: 450; }
+        .mode-btn .material-symbols-outlined { font-size: 17px; }
+        .mode-btn.mode-active, .mode-btn.mode-active:hover { background: #2b2b26 !important; border-color: transparent; color: #efeee9 !important; }
+        .mode-btn.mode-active::after { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); margin-left: auto; }
+        #open-diagonal { gap: 12px; }
+        .sidebar > .flex-1 { margin-top: 28px; }
+        .history-empty { padding: 4px 12px; color: #929288; font-size: 11px; line-height: 1.7; }
+        .history-row { display: flex; align-items: center; border-radius: 6px; min-width: 0; margin-bottom: 3px; }
+        .history-row:hover { background: #ffffff06; }
+        .history-row.chat-active { background: #2b2b26; }
+        .history-open { flex: 1; min-width: 0; padding: 9px 11px; font-size: 12px; color: #c4c4bb; }
+        .history-open span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .history-delete { width: 28px; height: 28px; margin-right: 4px; color: #a5a49c; opacity: 0; }
+        .history-row:hover .history-delete, .history-row:focus-within .history-delete { opacity: 1; }
+        .sidebar-utilities { display: flex; gap: 4px; padding: 8px 13px; border-bottom: 1px solid #2c2c28; }
+        .sidebar-utilities button { display: flex; align-items: center; gap: 7px; padding: 8px; font-size: 11px; border-radius: 6px; color: var(--muted); }
+        .sidebar-utilities button:hover { background: #ffffff09; color: var(--text); }
+        .profile-account-shell { padding: 12px; margin: 0; }
+        .profile-account-button { border: 0; background: none; min-height: 44px; padding: 5px; border-radius: 7px; }
+        .profile-avatar { background: #353229; border: 1px solid #4a4437; color: #d9c8aa; border-radius: 8px; width: 30px; height: 30px; font-size: 12px; }
+        .profile-account-button .text-sm { font-size: 12px; }
+        .profile-account-button .text-gray-500 { color: #96968b; }
+        .app-header { height: 62px; padding: 0 26px; border-bottom: 1px solid #30302b; background: var(--workspace-bg); box-shadow: none; backdrop-filter: none; flex: 0 0 auto; }
+        .app-header-context { display: flex; align-items: center; gap: 12px; }
+        .app-header-model { height: 34px; display: flex; align-items: center; }
+        #model-selector { font-size: 12px; font-weight: 500; padding: 7px 25px 7px 4px; max-width: 180px; height: 34px; }
+        #model-selector:hover { background: #ffffff06; }
+        .workspace-mode-label { margin-left: 0; padding-left: 16px; border-left: 1px solid #44443c; color: #96968b; font-size: 11px; }
+        .app-header-actions { gap: 5px; }
+        .header-glass-action { min-height: 32px; padding: 7px 9px; border: 0; background: transparent !important; color: var(--muted); font-size: 11px; border-radius: 6px; }
+        .header-glass-action:hover { background: #ffffff08 !important; }
+        .header-glass-action .material-symbols-outlined { color: inherit; font-size: 16px; }
+        .header-glass-action .header-action-label { color: inherit; font-size: 11px; font-weight: 450; }
+        #live-toggle { border: 1px solid #4a443a; color: #d7bd9d; padding: 7px 11px; margin-left: 5px; }
+        #live-toggle::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: #d7bd9d; }
+        #live-toggle .material-symbols-outlined { display: none; }
+        #chat-container { padding: 36px 28px 28px; scroll-padding-bottom: 24px; scrollbar-width: thin; scrollbar-color: #44443c transparent; }
+        #chat-container::-webkit-scrollbar { width: 5px; }
+        #chat-container::-webkit-scrollbar-thumb { background: #44443c; }
+        .welcome-shell { margin: 0 auto; padding: 0; max-width: 700px; width: 100%; }
+        .welcome-kicker { display: flex; align-items: center; gap: 8px; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; color: #aaa99e; font-weight: 400; letter-spacing: .1em; }
+        .welcome-kicker::before { content: ''; width: 18px; height: 1px; background: var(--accent); }
+        .welcome-heading-row { margin-top: 22px; gap: 12px; }
+        .welcome-heading { font-family: Georgia, 'Times New Roman', serif; font-size: clamp(32px, 3.7vw, 46px); letter-spacing: -.045em; font-weight: 400; color: #eeede6; line-height: 1.16; }
+        .welcome-heading-row button { opacity: 0; }
+        .welcome-heading-row:hover button, .welcome-heading-row:focus-within button { opacity: 1; }
+        .welcome-prompt { margin-top: 15px; font-size: 14px; color: #aaa99e; line-height: 1.7; max-width: 460px; }
+        .welcome-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 30px; }
+        .welcome-action { display: flex; align-items: center; gap: 10px; border: 1px solid #393932; border-radius: 8px; padding: 12px 13px; min-height: 64px; background: #ffffff02; }
+        .welcome-action:hover { border-color: #69614f; background: #ffffff05; }
+        .welcome-action > .material-symbols-outlined { color: #c7b79b; font-size: 18px; }
+        .welcome-action strong { display: block; font-size: 11px; font-weight: 500; color: #deddd5; }
+        .welcome-action small { display: block; font-size: 10px; color: #a4a398; margin-top: 5px; }
+        .composer-dock { position: relative; flex: 0 0 auto; padding: 12px 28px 20px; background: var(--workspace-bg); }
+        #composer-wrap { max-width: 700px; }
+        .input-box { display: flex; flex-direction: column; align-items: stretch; padding: 0; background: var(--surface); border: 1px solid #45443d; border-radius: 13px; backdrop-filter: none; box-shadow: 0 5px 20px #00000010; }
+        .input-box:focus-within { border-color: #8a7c68 !important; box-shadow: 0 0 0 2px #d5b89a0b; }
+        #user-input { resize: none; outline: none !important; width: 100%; flex: none; padding: 19px 19px 12px; min-height: 67px; max-height: 170px; font-size: 14px; line-height: 1.65; color: #ecebe5; caret-color: var(--accent); }
+        #user-input::placeholder { color: #a09f94; }
+        .composer-controls { display: flex; align-items: center; gap: 5px; padding: 4px 10px 10px; }
+        .composer-controls button { height: 29px; padding: 5px 7px; border-radius: 6px; color: #aaa99e; font-size: 11px; }
+        .composer-controls button:hover { background: #ffffff08; color: #e2e1d8; }
+        .composer-command { display: flex; align-items: center; gap: 5px; }
+        .composer-context { font-size: 10px; color: #a3a297; display: flex; align-items: center; gap: 6px; padding-left: 8px; margin-left: 4px; border-left: 1px solid #45443d; }
+        .composer-spacer { flex: 1; }
+        #send-button { background: #d8c3a8; color: #25221c; width: 29px; padding: 5px; display: grid; place-items: center; border-radius: 7px; }
+        #send-button:hover { background: #e5d2b7; color: #25221c; }
+        #send-button:disabled { background: #45443c; color: #96958b; opacity: 1; }
+        .composer-footer { display: flex; justify-content: space-between; gap: 12px; padding: 11px 4px 0; font-size: 10px; color: #99988d; }
+        .composer-footer kbd { border: 0; font-size: 10px; padding: 0; }
+        main:has(#welcome-block) #chat-container { flex: 0 0 auto; overflow-y: auto; padding-top: clamp(48px, 17vh, 165px); padding-bottom: 28px; }
+        main:has(#welcome-block) .composer-dock { padding-top: 0; }
+        .chat-message { max-width: 700px; min-width: 0; padding: 0; gap: 14px; margin: 0 auto 32px; font-size: 14px; line-height: 1.8; }
+        .chat-message > .flex-1 { min-width: 0; overflow-wrap: anywhere; }
+        .chat-message .text-\[15px\] { font-size: 14px; line-height: 1.85; }
+        .message-user { justify-content: flex-end; }
+        .message-user > .w-8 { display: none; }
+        .message-user > .flex-1 { flex: 0 1 auto; max-width: 88%; background: #2d2d28; border: 1px solid #393932; border-radius: 12px 12px 3px 12px; padding: 11px 17px; }
+        .message-user p { margin: 0; }
+        .message-assistant > .w-8 { background: #353027; border: 1px solid #4d4335; border-radius: 8px; width: 27px; height: 27px; color: var(--accent); }
+        .message-assistant > .w-8 .material-symbols-outlined { font-size: 16px; color: var(--accent); }
+        .message-assistant .uppercase { font-size: 10px; letter-spacing: .04em; color: #b2ac9e; text-transform: none; font-weight: 500; margin-bottom: 8px; }
+        .coding-toolbar { background: #20201d; border-bottom: 1px solid #34342d; box-shadow: none; backdrop-filter: none; }
+        .coding-control { background: #292923; border-color: #414137; border-radius: 6px; font-size: 11px; }
+        .kira-menu-panel, .sources-panel, .coding-modal-panel, .profile-account-menu, #attachment-menu, .slash-popup { background: #252523; border-color: #45443d; backdrop-filter: none; border-radius: 10px; box-shadow: 0 16px 60px #0005; }
+        .settings-shell { background: #22221f !important; }
+        .settings-tabs { flex-wrap: wrap; }
+        .ai-edge-strip .corner, .ai-edge-strip .top, .ai-edge-strip .left, .ai-edge-strip .right { display: none !important; }
+        .ai-edge-strip .bottom { height: 2px !important; background: var(--accent); filter: none !important; animation: none; opacity: .65; }
+        .search-modal { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-start; justify-content: center; padding: min(18vh, 150px) 20px 20px; background: #0008; backdrop-filter: blur(4px); }
+        .search-dialog { width: min(530px, 100%); background: #252523; border: 1px solid #555348; border-radius: 12px; box-shadow: 0 24px 80px #0006; overflow: hidden; }
+        .search-field { display: flex; align-items: center; gap: 12px; padding: 16px; border-bottom: 1px solid #3e3e35; color: var(--muted); }
+        #workspace-search { outline: none; flex: 1; min-width: 0; font-size: 14px; }
+        #workspace-search::placeholder { color: #a09f94; }
+        .search-field:focus-within { box-shadow: inset 0 -1px 0 #8a7c68; }
+        .search-results { max-height: min(380px, 50vh); overflow-y: auto; padding: 8px; }
+        .search-group-label { color: #a5a49b; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 11px 10px 7px; }
+        .search-result { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 10px; border-radius: 6px; color: #dbdad1; font-size: 12px; }
+        .search-result:hover, .search-result:focus { background: #36362f; }
+        .search-result .material-symbols-outlined { color: var(--muted); }
+        .search-result kbd { margin-left: auto; }
+        .search-result span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .search-help { padding: 12px 17px; border-top: 1px solid #3e3e35; font-size: 10px; color: #a5a49b; }
+        .sidebar-backdrop { display: none; }
+        #sidebar-toggle { display: none; }
+        body.sidebar-collapsed aside.sidebar { display: none; }
+        body.sidebar-collapsed #sidebar-toggle { display: grid; }
+        @media (max-width: 1100px) { .header-action-label { display: none; } #live-toggle .header-action-label { display: inline; } .workspace-mode-label { display: none; } }
+        @media (max-width: 760px) {
+            aside.sidebar { position: fixed; inset: 0 auto 0 0; z-index: 80; width: 244px; display: none; }
+            body.sidebar-open aside.sidebar { display: flex; }
+            body.sidebar-open .sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 79; background: #0008; }
+            #sidebar-toggle, body.sidebar-collapsed #sidebar-toggle { display: grid; }
+            .app-header { height: 56px; padding: 0 12px; gap: 8px; }
+            .app-header-context { gap: 7px; }
+            #model-selector { font-size: 11px; max-width: 138px; }
+            .app-header-actions { gap: 0; }
+            #sources-toggle { display: none; }
+            #live-toggle { margin-left: 2px; padding: 6px 8px; }
+            #chat-container { padding: 24px 18px; }
+            main:has(#welcome-block) #chat-container { padding-top: clamp(44px, 12vh, 100px); }
+            .welcome-heading { font-size: 36px; }
+            .welcome-prompt { font-size: 13px; }
+            .welcome-actions { gap: 7px; margin-top: 24px; }
+            .welcome-action { padding: 12px 9px; display: block; min-height: 86px; }
+            .welcome-action > .material-symbols-outlined { margin-bottom: 8px; }
+            .welcome-action small { font-size: 9px; line-height: 1.5; }
+            .composer-dock { padding: 10px 14px max(16px, env(safe-area-inset-bottom)); }
+            .composer-footer { font-size: 9px; }
+            .composer-footer > span:last-child { display: none; }
+            .composer-command span:last-child { display: none; }
+            .settings-grid { grid-template-columns: 1fr; }
+            .settings-tab { font-size: 11px; padding: 0 8px; }
+            .history-delete { opacity: 1; }
+        }
+        @media (max-height: 700px) { main:has(#welcome-block) #chat-container { padding-top: 36px; padding-bottom: 18px; } .welcome-actions { margin-top: 20px; } .welcome-heading-row { margin-top: 14px; } }
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
+
     </style>
 </head>
 
@@ -1216,21 +1398,24 @@
         <div class="corner br"></div>
     </div>
 
-    <aside class="w-72 sidebar flex flex-col transition-all duration-300 border-r border-white/5">
-        <div class="kira-brand-row px-4 pt-4 flex items-center mt-2">
-            <div class="min-w-0">
-                <div class="kira-brand-name">KIRA</div>
-                <div class="kira-brand-product">SUPERAPP</div>
+    <button class="sidebar-backdrop" onclick="toggleSidebar(false)" aria-label="Close navigation"></button>
+    <aside id="workspace-sidebar" aria-label="Workspace navigation" class="w-72 sidebar flex flex-col transition-all duration-300 border-r border-white/5">
+        <div class="kira-brand-row flex items-center">
+            <div class="kira-brand-lockup">
+                <span class="kira-monogram" aria-hidden="true">k</span>
+                <div><div class="kira-brand-name">KIRA</div><div class="kira-brand-product">Your local workspace</div></div>
             </div>
+            <button class="icon-button" onclick="toggleSidebar()" aria-label="Collapse navigation" title="Collapse navigation (⌘B)"><span class="material-symbols-outlined">side_navigation</span></button>
         </div>
 
         <div class="px-3 mt-4">
             <button onclick="createNewChat()" class="new-chat-button w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-[#f5f5f5] text-black text-sm font-medium hover:bg-[#ffffff] transition-colors">
                 <span class="material-symbols-outlined text-[19px]">edit_square</span>
-                New Chat
+                New chat <kbd>⌘ N</kbd>
             </button>
         </div>
 
+        <div class="px-3"><button class="sidebar-search" onclick="openWorkspaceSearch()" aria-label="Search chats and actions"><span class="material-symbols-outlined">search</span>Search anything<kbd>⌘ K</kbd></button></div>
         <div class="px-3 mt-5">
             <div class="text-xs font-semibold text-gray-500 mb-3 px-3 uppercase tracking-wider">Workspace</div>
             <div class="workspace-switcher space-y-1">
@@ -1243,14 +1428,21 @@
                     <span class="material-symbols-outlined text-[20px]">terminal</span>
                     <span class="text-sm font-medium">Code</span>
                 </button>
+                <button id="open-diagonal" type="button" onclick="openDiagonalBrowser()" class="mode-btn w-full flex items-center px-3 py-2.5 text-gray-300 transition-colors" title="Open Diagonal Browser">
+                    <span class="material-symbols-outlined">public</span><span class="text-sm font-medium">Browser</span>
+                </button>
             </div>
         </div>
 
         <div class="px-3 mt-6 flex-1 min-h-0 flex flex-col">
             <div class="text-xs font-semibold text-gray-500 mb-3 px-3 uppercase tracking-wider">Recent</div>
-            <div id="chat-history" class="space-y-1 overflow-y-auto pr-1 flex-1"></div>
+            <div id="chat-history" class="overflow-y-auto pr-1 flex-1"><div class="history-empty">A little room for your next idea.<br>Your conversations will appear here.</div></div>
         </div>
 
+        <div class="sidebar-utilities">
+            <button onclick="toggleSettings(true, 'mcp')"><span class="material-symbols-outlined">extension</span>Connectors</button>
+            <button onclick="toggleSettings(true)"><span class="material-symbols-outlined">settings</span>Settings</button>
+        </div>
         <div id="profile-account-shell" class="profile-account-shell p-3 mb-1">
             <div id="profile-account-menu" class="profile-account-menu hidden" role="menu" aria-label="Account menu">
                 <div class="profile-menu-identity">
@@ -1287,13 +1479,27 @@
     <main class="flex-1 min-w-0 overflow-hidden flex flex-col relative h-full">
         <header class="app-header h-16 flex items-center justify-between px-6">
             <div class="app-header-context">
+                <button id="sidebar-toggle" class="icon-button" onclick="toggleSidebar()" aria-controls="workspace-sidebar" aria-expanded="true" aria-label="Toggle navigation" title="Toggle navigation (⌘B)"><span class="material-symbols-outlined">side_navigation</span></button>
                 <div class="app-header-model relative">
-                    <select id="model-selector" class="appearance-none bg-transparent hover:bg-[#2a2a2a] text-lg font-medium py-2 pl-3 pr-8 rounded-lg cursor-pointer focus:outline-none transition-colors text-gray-200">
+                    <select aria-label="Chat model" id="model-selector" class="appearance-none bg-transparent hover:bg-[#2a2a2a] text-lg font-medium py-2 pl-3 pr-8 rounded-lg cursor-pointer focus:outline-none transition-colors text-gray-200">
                         <option value="orchestrator" class="bg-[#1f1f1f] text-sm">Orchestrator V1</option>
                         <option value="kira" class="bg-[#1f1f1f] text-sm">KIRA Live 1</option>
+                        <option value="orchestrator_v15" class="bg-[#1f1f1f] text-sm">Orchestrator v1.5</option>
+                        <option value="orchestrator_v15_thinking" class="bg-[#1f1f1f] text-sm">Orchestrator v1.5 Thinking Preview</option>
+                        <option value="orchestrator_v15_orchestral_preview" class="bg-[#1f1f1f] text-sm">Diagonal Orchestral · Research Preview</option>
+                        <option value="orchestrator_v15_ppt_preview" class="bg-[#1f1f1f] text-sm">Horizon 1 Preview</option>
                     </select>
                     <span class="material-symbols-outlined absolute right-2 top-2.5 text-gray-400 pointer-events-none">expand_more</span>
                 </div>
+                <label id="thinking-effort-wrap" class="hidden items-center gap-2 text-xs text-gray-400" for="thinking-effort-selector" title="Higher effort explores more bounded browser proposals. Diagonal mode compares three proposals against the same verified evidence and executes one.">
+                    Thinking
+                    <select id="thinking-effort-selector" aria-label="Thinking effort" class="bg-[#242424] text-gray-200 rounded-md px-2 py-1">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="diagonal">Diagonal mode</option>
+                    </select>
+                </label>
                 <div id="workspace-mode-label" class="workspace-mode-label">Chat workspace</div>
             </div>
 
@@ -1301,18 +1507,14 @@
                 <button onclick="toggleTasks(true)" class="header-glass-action flex items-center gap-2 px-4 py-2" title="Scheduled tasks and reminders" aria-label="Tasks">
                     <span class="material-symbols-outlined">event_upcoming</span><span class="header-action-label">Tasks</span>
                 </button>
-                <button id="kira-menu-toggle" onclick="toggleKiraMenu()" class="header-glass-action flex items-center space-x-2 px-4 py-2 transition-colors" title="Apps, artifacts, build and generate menu">
+                <button id="kira-menu-toggle" aria-label="Tools and artifacts" onclick="toggleKiraMenu()" class="header-glass-action flex items-center space-x-2 px-4 py-2 transition-colors" title="Apps, artifacts, build and generate menu">
                     <span class="material-symbols-outlined text-[20px] text-[#f5f5f5]">dashboard_customize</span>
-                    <span class="header-action-label text-sm font-medium text-gray-300">Menu</span>
+                    <span class="header-action-label text-sm font-medium text-gray-300">Tools</span>
                 </button>
-                <button id="sources-toggle" onclick="toggleSources()" class="header-glass-action flex items-center space-x-2 px-4 py-2 transition-colors" title="Sources used in this chat">
+                <button id="sources-toggle" aria-label="Chat sources" onclick="toggleSources()" class="header-glass-action flex items-center space-x-2 px-4 py-2 transition-colors" title="Sources used in this chat">
                     <span class="material-symbols-outlined text-[20px] text-[#f5f5f5]">library_books</span>
                     <span class="header-action-label text-sm font-medium text-gray-300">Sources</span>
                     <span id="sources-count" class="hidden min-w-5 h-5 px-1 rounded-full bg-white text-black text-[11px] font-semibold grid place-items-center">0</span>
-                </button>
-                <button id="voice-toggle" onclick="toggleDictation()" title="Dictate a prompt" aria-label="Dictate a prompt" aria-pressed="false" class="header-glass-action flex items-center space-x-2 px-4 py-2 transition-colors">
-                    <span class="material-symbols-outlined text-[20px] text-gray-400" id="voice-icon">mic</span>
-                    <span class="header-action-label text-sm font-medium text-gray-300" id="voice-text">Dictate</span>
                 </button>
                 <button id="live-toggle" onclick="toggleLiveMonitor(true)" title="Talk with KIRA Live 1" aria-label="Talk with KIRA Live 1" class="header-glass-action flex items-center space-x-2 px-4 py-2 transition-colors">
                     <span class="material-symbols-outlined text-[20px] text-gray-300">graphic_eq</span>
@@ -1430,18 +1632,21 @@
 
         <div id="chat-container" class="flex-1 overflow-y-auto p-4 chat-area pb-32">
             <div id="welcome-block" class="welcome-shell max-w-3xl mx-auto">
-                <div class="welcome-kicker">KIRA SUPERAPP</div>
+                <div class="welcome-kicker">A LITTLE SPACE TO DO BIG THINGS</div>
                 <div class="welcome-heading-row">
-                    <h1 id="welcome-greeting" class="welcome-heading">Hello, apply your name.</h1>
-                    <button onclick="openDisplayNameEditor()" class="h-9 w-9 shrink-0 grid place-items-center text-gray-500 hover:text-white" title="Edit display name" aria-label="Edit display name">
-                        <span class="material-symbols-outlined text-[20px]">edit</span>
-                    </button>
+                    <h1 id="welcome-greeting" class="welcome-heading">What’s on your mind?</h1>
+                    <button onclick="openDisplayNameEditor()" class="icon-button" title="Edit display name" aria-label="Edit display name"><span class="material-symbols-outlined">edit_square</span></button>
                 </div>
-                <p id="welcome-prompt" class="welcome-prompt">What would you like to do?</p>
+                <p id="welcome-prompt" class="welcome-prompt">A thought, a question, a project. Start anywhere.<br>Let’s make something of it.</p>
+                <div class="welcome-actions" aria-label="Ways to get started">
+                    <button class="welcome-action" onclick="useWelcomeAction('research')"><span class="material-symbols-outlined">travel_explore</span><span><strong>Explore an idea</strong><small>Research & make sense of it</small></span></button>
+                    <button class="welcome-action" onclick="useWelcomeAction('create')"><span class="material-symbols-outlined">description</span><span><strong>Create something</strong><small>Documents, decks & more</small></span></button>
+                    <button class="welcome-action" onclick="useWelcomeAction('code')"><span class="material-symbols-outlined">terminal</span><span><strong>Build with code</strong><small>From first idea to a fix</small></span></button>
+                </div>
             </div>
         </div>
 
-        <div class="absolute bottom-0 w-full bg-gradient-to-t from-[#0b0b0c] via-[#0b0b0c] to-transparent pt-10 pb-6 px-4">
+        <div class="composer-dock">
             <div id="composer-wrap" class="max-w-3xl mx-auto relative">
                 <div id="slash-panel" class="slash-popup hidden rounded-2xl">
                     <div class="px-4 pt-3 pb-2 border-b border-white/10">
@@ -1458,22 +1663,32 @@
                 </div>
                 <input id="attachment-input" class="hidden" type="file" multiple
                     accept=".pdf,.docx,.pptx,.xlsx,.xls,.csv,.tsv,.txt,.md,.json,.jsonl,.yaml,.yml,.xml,.py,.js,.ts,.tsx,.jsx,.html,.css,.scss,.c,.h,.cpp,.hpp,.java,.swift,.kt,.rs,.go,.sh,.zsh,.sql,.toml,.ini,.log,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff">
-                <div class="input-box rounded-[24px] border border-[#3a3a3a] focus-within:border-[#d4d4d4] flex items-end px-2 py-2 transition-colors">
-                    <button id="attachment-button" type="button" onclick="toggleAttachmentMenu()" aria-haspopup="menu" aria-controls="attachment-menu" aria-expanded="false" class="p-3 text-gray-400 hover:text-gray-200 rounded-full hover:bg-white/5 transition-colors" title="Attach files" aria-label="Attach files">
-                        <span class="material-symbols-outlined text-[22px]">attach_file_add</span>
-                    </button>
-
-                    <textarea id="user-input" rows="1" placeholder="Message KIRA" aria-label="Message KIRA" autofocus
-                        class="flex-1 bg-transparent text-gray-200 placeholder-gray-500 resize-none outline-none max-h-32 py-3 px-2 text-md"></textarea>
-
-                    <button onclick="sendMessage()" class="p-3 text-gray-400 hover:text-[#f5f5f5] rounded-full hover:bg-white/5 transition-colors" title="Send">
-                        <span class="material-symbols-outlined text-[22px]">arrow_upward</span>
-                    </button>
+                <div class="input-box">
+                    <textarea id="user-input" rows="1" placeholder="Ask anything, or describe a task…" aria-label="Message KIRA" autofocus></textarea>
+                    <div class="composer-controls">
+                        <button id="attachment-button" type="button" onclick="toggleAttachmentMenu()" aria-haspopup="menu" aria-controls="attachment-menu" aria-expanded="false" title="Attach files" aria-label="Attach files"><span class="material-symbols-outlined">add</span></button>
+                        <button type="button" class="composer-command" onclick="openComposerCommands()" title="Browse slash commands" aria-label="Browse slash commands"><span class="material-symbols-outlined">terminal</span><span>Commands</span></button>
+                        <span id="composer-context" class="composer-context">Chat workspace</span>
+                        <span class="composer-spacer"></span>
+                <button id="voice-toggle" onclick="toggleDictation()" title="Dictate a prompt" aria-label="Dictate a prompt" aria-pressed="false" class="header-glass-action flex items-center space-x-2 px-4 py-2 transition-colors">
+                    <span class="material-symbols-outlined text-[20px] text-gray-400" id="voice-icon">mic</span>
+                    <span class="header-action-label text-sm font-medium text-gray-300" id="voice-text">Dictate</span>
+                </button>
+                        <button id="send-button" onclick="sendMessage()" title="Send message (Enter)" aria-label="Send message" disabled><span class="material-symbols-outlined">arrow_upward</span></button>
+                    </div>
                 </div>
+                <div class="composer-footer"><span><kbd>↵</kbd> to send <span aria-hidden="true"> · </span> <kbd>⇧ ↵</kbd> for a new line</span><span>Your workspace. On your Mac.</span></div>
             </div>
         </div>
     </main>
 
+    <div id="workspace-search-modal" class="search-modal hidden">
+        <div class="search-dialog" role="dialog" aria-modal="true" aria-label="Search chats and actions">
+            <div class="search-field"><span class="material-symbols-outlined">search</span><input id="workspace-search" type="search" placeholder="Find a chat or jump to an action…" aria-label="Search chats and actions" oninput="renderWorkspaceSearch()"><button class="icon-button" onclick="closeWorkspaceSearch()" aria-label="Close search"><span class="material-symbols-outlined">close</span></button></div>
+            <div id="workspace-search-results" class="search-results"></div>
+            <div class="search-help">↑ ↓ to navigate <span aria-hidden="true"> · </span> Enter to open <span aria-hidden="true"> · </span> Esc to close</div>
+        </div>
+    </div>
     <div id="tasks-modal" class="coding-modal-backdrop hidden fixed inset-0 z-[95] items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="tasks-title">
         <div class="coding-modal-panel w-full rounded-lg p-5 overflow-y-auto" style="max-width:640px;max-height:85vh">
             <div class="flex items-center justify-between mb-3"><h2 id="tasks-title">Tasks &amp; reminders</h2><button aria-label="Close tasks" onclick="toggleTasks(false)"><span class="material-symbols-outlined">close</span></button></div>
@@ -1742,6 +1957,7 @@
 
     <script>
         const localIconMap = {
+            side_navigation: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
             add: '<path d="M12 5v14M5 12h14"/>',
             add_circle: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
             admin_panel_settings: '<path d="M12 3l7 3v5c0 4.2-2.8 7.6-7 10-4.2-2.4-7-5.8-7-10V6l7-3z"/><path d="M12 8v5"/><path d="M12 16h.01"/>',
@@ -1777,6 +1993,7 @@
             hub: '<circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 7l3 3M17 7l-3 3M7 17l3-3M17 17l-3-3"/>',
             inventory_2: '<path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M5 10v8l7 3 7-3v-8"/><path d="M12 11v10"/>',
             key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M15 8l2 2M17 6l2 2"/>',
+            library_books: '<path d="M4 5h7v15H4zM14 5h6v15h-6z"/><path d="M7 9h1M7 12h1M16 9h2M16 12h2"/>',
             lock: '<rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
             memory: '<rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/>',
             mic: '<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4"/>',
@@ -1849,6 +2066,18 @@
         const systemStatus = document.getElementById('system-status');
         const statusDot = document.getElementById('status-dot');
         const modelSelector = document.getElementById('model-selector');
+        const thinkingEffortSelector = document.getElementById('thinking-effort-selector');
+        const thinkingEffortWrap = document.getElementById('thinking-effort-wrap');
+        function syncThinkingEffortVisibility() {
+            const isV15 = ['orchestrator_v15', 'orchestrator_v15_thinking', 'orchestrator_v15_orchestral_preview', 'orchestrator_v15_ppt_preview'].includes(modelSelector.value);
+            thinkingEffortWrap.classList.toggle('hidden', !isV15);
+            thinkingEffortWrap.classList.toggle('flex', isV15);
+            const fixedDiagonalPreview = ['orchestrator_v15_orchestral_preview', 'orchestrator_v15_ppt_preview'].includes(modelSelector.value);
+            thinkingEffortSelector.disabled = fixedDiagonalPreview;
+            if (fixedDiagonalPreview) thinkingEffortSelector.value = 'diagonal';
+        }
+        modelSelector.addEventListener('change', syncThinkingEffortVisibility);
+        syncThinkingEffortVisibility();
         const voiceLive = document.getElementById('voice-live');
         let kiraLiveMicMuted = false;
         let kiraLiveStarting = false;
@@ -2224,6 +2453,190 @@
         const VOICE_ENDPOINT_SILENCE_MS = 900;
         const VOICE_MAX_TURN_MS = 18000;
 
+        // Workspace interactions use the existing native API and local preferences.
+        let workspaceChats = [];
+        let searchReturnFocus = null;
+        const searchModal = document.getElementById('workspace-search-modal');
+        const searchInput = document.getElementById('workspace-search');
+        const searchResults = document.getElementById('workspace-search-results');
+        const sidebarToggle = document.getElementById('sidebar-toggle');
+        const mobileWorkspace = window.matchMedia('(max-width: 760px)');
+
+        function syncSidebarState() {
+            const open = mobileWorkspace.matches
+                ? document.body.classList.contains('sidebar-open')
+                : !document.body.classList.contains('sidebar-collapsed');
+            sidebarToggle.setAttribute('aria-expanded', String(open));
+            document.querySelector('body > main').inert = mobileWorkspace.matches && open;
+        }
+
+        function toggleSidebar(force) {
+            if (mobileWorkspace.matches) {
+                const open = typeof force === 'boolean' ? force : !document.body.classList.contains('sidebar-open');
+                document.body.classList.toggle('sidebar-open', open);
+                syncSidebarState();
+                if (open) document.querySelector('.sidebar .new-chat-button').focus();
+                else sidebarToggle.focus();
+            } else {
+                const open = typeof force === 'boolean' ? force : document.body.classList.contains('sidebar-collapsed');
+                document.body.classList.toggle('sidebar-collapsed', !open);
+                localStorage.setItem('kira_sidebar_collapsed', String(!open));
+                syncSidebarState();
+                if (!open) sidebarToggle.focus();
+            }
+        }
+
+        function closeMobileSidebar() {
+            if (document.body.classList.contains('sidebar-open')) toggleSidebar(false);
+        }
+
+        function updateWorkspaceWelcome() {
+            const heading = document.getElementById('welcome-greeting');
+            const prompt = document.getElementById('welcome-prompt');
+            if (!heading || !prompt) return;
+            heading.textContent = currentMode === 'vibe_coding' ? 'What shall we build?' : currentGreeting();
+            prompt.innerHTML = currentMode === 'vibe_coding'
+                ? 'Choose a project above. Bring an idea, a bug, or a next step.<br>We’ll work through it together.'
+                : 'A thought, a question, a project. Start anywhere.<br>Let’s make something of it.';
+        }
+
+        function useWelcomeAction(action) {
+            setMode(action === 'code' ? 'vibe_coding' : 'agent');
+            userInput.value = {
+                research: 'Help me research ',
+                create: 'Help me create a document about ',
+                code: 'Help me build '
+            }[action] || '';
+            userInput.dispatchEvent(new Event('input'));
+            focusComposer();
+            userInput.setSelectionRange(userInput.value.length, userInput.value.length);
+        }
+
+        function syncSendButton() {
+            document.getElementById('send-button').disabled = !userInput.value.trim() && !pendingAttachments.length;
+        }
+
+        function openComposerCommands() {
+            if (!userInput.value.trim()) userInput.value = '/';
+            userInput.dispatchEvent(new Event('input'));
+            focusComposer();
+            updateSlashPanel();
+        }
+
+        const workspaceActions = [
+            {title: 'New chat', icon: 'edit_square', shortcut: '⌘ N', run: () => createNewChat()},
+            {title: 'Chat workspace', icon: 'forum', run: () => setMode('agent')},
+            {title: 'Code workspace', icon: 'terminal', run: () => setMode('vibe_coding')},
+            {title: 'Talk with KIRA Live 1', icon: 'graphic_eq', run: () => toggleLiveMonitor(true)},
+            {title: 'Tools and artifacts', icon: 'dashboard_customize', run: () => toggleKiraMenu(true)},
+            {title: 'Chat sources', icon: 'library_books', run: () => toggleSources(true)},
+            {title: 'Tasks and reminders', icon: 'event_upcoming', run: () => toggleTasks(true)},
+            {title: 'Connectors', icon: 'extension', run: () => toggleSettings(true, 'mcp')},
+            {title: 'Settings', icon: 'settings', run: () => toggleSettings(true)}
+        ];
+
+        async function openWorkspaceSearch() {
+            if (voiceLive.getAttribute('aria-hidden') === 'false') return;
+            searchReturnFocus = document.activeElement;
+            closeMobileSidebar();
+            searchModal.classList.remove('hidden');
+            setMainWorkspaceInert(true);
+            searchInput.value = '';
+            renderWorkspaceSearch();
+            searchInput.focus();
+            if (isBackendReady) {
+                try { await refreshChatHistory(); renderWorkspaceSearch(); }
+                catch (error) { console.warn('Chat search refresh failed', error); }
+            }
+        }
+
+        function closeWorkspaceSearch() {
+            searchModal.classList.add('hidden');
+            setMainWorkspaceInert(false);
+            if (searchReturnFocus && searchReturnFocus.isConnected && searchReturnFocus.getClientRects().length) searchReturnFocus.focus();
+            else focusComposer();
+        }
+
+        function renderWorkspaceSearch() {
+            const query = searchInput.value.trim().toLocaleLowerCase();
+            searchResults.replaceChildren();
+            const appendGroup = (label, items, create) => {
+                if (!items.length) return;
+                const heading = document.createElement('div');
+                heading.className = 'search-group-label';
+                heading.textContent = label;
+                searchResults.appendChild(heading);
+                items.forEach(item => searchResults.appendChild(create(item)));
+            };
+            const resultButton = (title, icon, run, shortcut = '') => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'search-result';
+                button.innerHTML = `<span class="material-symbols-outlined">${icon}</span><span>${escapeHtml(title)}</span>${shortcut ? `<kbd>${escapeHtml(shortcut)}</kbd>` : ''}`;
+                button.addEventListener('click', () => { closeWorkspaceSearch(); run(); });
+                return button;
+            };
+            const chats = workspaceChats.filter(chat => String(chat.title || 'New chat').toLocaleLowerCase().includes(query));
+            const actions = workspaceActions.filter(action => action.title.toLocaleLowerCase().includes(query));
+            appendGroup('CHATS', chats, chat => resultButton(chat.title || 'New chat', 'forum', () => loadChat(chat.id)));
+            appendGroup('JUMP TO', actions, action => resultButton(action.title, action.icon, action.run, action.shortcut));
+            if (!chats.length && !actions.length) {
+                const empty = document.createElement('p');
+                empty.className = 'history-empty';
+                empty.setAttribute('role', 'status');
+                empty.textContent = 'No matches. Try another chat title or action.';
+                searchResults.appendChild(empty);
+            }
+        }
+
+        searchModal.addEventListener('click', event => { if (event.target === searchModal) closeWorkspaceSearch(); });
+        searchModal.addEventListener('keydown', event => {
+            const buttons = Array.from(searchResults.querySelectorAll('button'));
+            if (event.key === 'Escape') { event.preventDefault(); closeWorkspaceSearch(); }
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const index = buttons.indexOf(document.activeElement);
+                const next = event.key === 'ArrowDown' ? (index + 1) % buttons.length : (index <= 0 ? buttons.length - 1 : index - 1);
+                if (buttons[next]) buttons[next].focus();
+            }
+            if (event.key === 'Enter' && document.activeElement === searchInput && buttons.length) { event.preventDefault(); buttons[0].click(); }
+            if (event.key === 'Tab') {
+                const controls = Array.from(searchModal.querySelectorAll('input, button'));
+                const first = controls[0], last = controls[controls.length - 1];
+                if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+                else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+            }
+        });
+
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && document.body.classList.contains('sidebar-open')) { toggleSidebar(false); return; }
+            if (voiceLive.getAttribute('aria-hidden') === 'false') return;
+            if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+            const key = event.key.toLowerCase();
+            const blockingDialog = Array.from(document.querySelectorAll('[aria-modal="true"]')).some(node => node.getClientRects().length);
+            if (key === 'k' && (!blockingDialog || !searchModal.classList.contains('hidden'))) {
+                event.preventDefault();
+                if (searchModal.classList.contains('hidden')) openWorkspaceSearch(); else closeWorkspaceSearch();
+            } else if (!blockingDialog && (key === 'n' || key === 'b')) {
+                event.preventDefault();
+                if (key === 'n') createNewChat(); else toggleSidebar();
+            }
+        });
+        document.querySelector('.sidebar').addEventListener('keydown', event => {
+            if (!mobileWorkspace.matches || !document.body.classList.contains('sidebar-open') || event.key !== 'Tab') return;
+            const controls = Array.from(document.querySelectorAll('.sidebar button')).filter(node => node.getClientRects().length);
+            const first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        });
+        document.querySelector('.sidebar-utilities').addEventListener('click', closeMobileSidebar);
+        mobileWorkspace.addEventListener('change', () => {
+            document.body.classList.remove('sidebar-open');
+            if (searchModal.classList.contains('hidden') && voiceLive.getAttribute('aria-hidden') !== 'false') syncSidebarState();
+        });
+        document.body.classList.toggle('sidebar-collapsed', localStorage.getItem('kira_sidebar_collapsed') === 'true');
+        syncSidebarState();
+
         function sanitizeDisplayName(value) {
             return String(value || '')
                 .replace(/[<>{}]/g, '')
@@ -2233,12 +2646,13 @@
         }
 
         function currentGreeting() {
-            return displayName ? `Hello, ${displayName}.` : 'Hello, apply your name.';
+            return displayName ? `What’s on your mind, ${displayName}?` : 'What’s on your mind?';
         }
 
         function updateGreeting() {
             const greeting = document.getElementById('welcome-greeting');
             if (greeting) greeting.textContent = currentGreeting();
+            updateWorkspaceWelcome();
             updateProfileSurface();
         }
 
@@ -2263,11 +2677,13 @@
         }
 
         function openSettingsFromProfile(tab = 'providers') {
+            closeMobileSidebar();
             toggleAccountMenu(false);
             toggleSettings(true, tab);
         }
 
         function openDisplayNameEditor() {
+            closeMobileSidebar();
             profileDisplayNameInput.value = displayName;
             profileSettingsStatus.textContent = displayName
                 ? 'Change or clear the name shown in KIRA Superapp.'
@@ -2491,6 +2907,18 @@
             }
         }
 
+        async function openDiagonalBrowser() {
+            updateSystemStatus('Opening Diagonal');
+            try {
+                const result = await window.pywebview.api.launch_diagonal_browser();
+                if (!result || !result.ok) throw new Error(result?.error || 'Could not open Diagonal Browser.');
+                updateSystemStatus('Diagonal Opened');
+            } catch (error) {
+                renderErrorMessage(String(error));
+                updateSystemStatus('Diagonal Error');
+            }
+        }
+
         async function refreshKiraMenu(force = false) {
             if (!isBackendReady || !kiraMenuOpen) return;
 
@@ -2585,6 +3013,7 @@
 
             if (item.prompt) {
                 userInput.value = item.prompt;
+                syncSendButton();
                 userInput.style.height = 'auto';
                 userInput.style.height = userInput.scrollHeight + 'px';
                 toggleKiraMenu(false);
@@ -2608,6 +3037,9 @@
 
         function setMode(mode, btnElement) {
             currentMode = mode;
+            document.getElementById('composer-context').textContent = mode === 'vibe_coding' ? 'Code workspace' : 'Chat workspace';
+            updateWorkspaceWelcome();
+            closeMobileSidebar();
 
             document.querySelectorAll('.mode-btn').forEach(btn => {
                 btn.classList.remove('mode-active', 'text-[#f5f5f5]');
@@ -2622,6 +3054,7 @@
             }
 
             if (mode === 'vibe_coding') modelSelector.value = 'orchestrator';
+            syncThinkingEffortVisibility();
             codingToolbar.classList.toggle('hidden', mode !== 'vibe_coding');
             const workspaceLabel = document.getElementById('workspace-mode-label');
             if (mode === 'vibe_coding') {
@@ -2631,7 +3064,7 @@
                 userInput.placeholder = 'Describe what you want to build';
             } else {
                 if (workspaceLabel) workspaceLabel.textContent = 'Chat workspace';
-                userInput.placeholder = 'Message KIRA';
+                userInput.placeholder = 'Ask anything, or describe a task…';
             }
         }
 
@@ -2832,6 +3265,7 @@
         }
 
         function toggleSettings(open, tab = 'providers', provider = '') {
+            if (open) closeMobileSidebar();
             const visible = Boolean(open);
             codingSettingsModal.classList.toggle('hidden', !visible);
             codingSettingsModal.classList.toggle('flex', visible);
@@ -3350,6 +3784,7 @@
                 voiceListenButton.title = 'Start KIRA Live';
                 voiceListenButton.querySelector('.material-symbols-outlined').textContent = 'mic';
                 if (livePreviousBrain !== null) modelSelector.value = livePreviousBrain;
+                syncThinkingEffortVisibility();
                 livePreviousBrain = null;
                 if (isBackendReady && window.pywebview.api.stop_live_voice) {
                     try { await window.pywebview.api.stop_live_voice(); } catch (_) {}
@@ -3466,6 +3901,7 @@
                 isVoiceActive = true;
                 if (result.chat_id) currentChatId = result.chat_id;
                 modelSelector.value = 'kira';
+                syncThinkingEffortVisibility();
                 kiraLiveMicMuted = false;
                 voiceListenButton.setAttribute('aria-label', 'Mute microphone');
                 voiceListenButton.title = 'Mute microphone';
@@ -3574,6 +4010,7 @@
             }
             currentMode = 'agent';
             modelSelector.value = 'orchestrator';
+            syncThinkingEffortVisibility();
             setAIStripState('agentic');
             await queuePrompt(promptText, 'live');
             await refreshLiveMonitor(true);
@@ -3602,31 +4039,37 @@
 
         async function refreshChatHistory() {
             if (!isBackendReady) return;
-
             const chats = await window.pywebview.api.get_chats();
-            chatHistory.innerHTML = '';
-
-            chats.forEach(chat => {
+            workspaceChats = Array.isArray(chats) ? chats : [];
+            chatHistory.replaceChildren();
+            if (!workspaceChats.length) {
+                chatHistory.innerHTML = '<div class="history-empty">A little room for your next idea.<br>Your conversations will appear here.</div>';
+            }
+            workspaceChats.forEach(chat => {
                 const row = document.createElement('div');
-                row.className = `group flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer hover:bg-[#2a2a2a] ${chat.id === currentChatId ? 'chat-active' : 'text-gray-300'}`;
-                row.onclick = () => loadChat(chat.id);
-
-                row.innerHTML = `
-                    <span class="material-symbols-outlined text-[18px] text-gray-500">forum</span>
-                    <div class="min-w-0 flex-1">
-                        <div class="text-sm truncate">${escapeHtml(chat.title || 'New Chat')}</div>
-                        <div class="text-[10px] text-gray-500 truncate">${escapeHtml(formatChatTime(chat))}</div>
-                    </div>
-                    <button onclick="event.stopPropagation(); deleteChat('${chat.id}')" class="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-white/10 text-gray-500">
-                        <span class="material-symbols-outlined text-[16px]">delete</span>
-                    </button>
-                `;
-
+                row.className = `history-row ${chat.id === currentChatId ? 'chat-active' : ''}`;
+                const open = document.createElement('button');
+                open.type = 'button';
+                open.className = 'history-open';
+                open.title = `${chat.title || 'New chat'} · ${formatChatTime(chat)}`;
+                if (chat.id === currentChatId) open.setAttribute('aria-current', 'page');
+                const label = document.createElement('span');
+                label.textContent = chat.title || 'New chat';
+                open.appendChild(label);
+                open.addEventListener('click', () => loadChat(chat.id));
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'history-delete icon-button';
+                remove.setAttribute('aria-label', `Delete ${chat.title || 'New chat'}`);
+                remove.innerHTML = '<span class="material-symbols-outlined">delete</span>';
+                remove.addEventListener('click', () => deleteChat(chat.id));
+                row.append(open, remove);
                 chatHistory.appendChild(row);
             });
         }
 
         async function createNewChat(render = true) {
+            closeMobileSidebar();
             if (!isBackendReady) return;
             if (dictationActive) await toggleDictation();
             if (liveMonitorOpen || isVoiceActive || kiraLiveStarting) await toggleLiveMonitor(false);
@@ -3648,6 +4091,7 @@
         }
 
         async function loadChat(chatId) {
+            closeMobileSidebar();
             if (!isBackendReady) return;
             if (dictationActive) await toggleDictation();
 
@@ -3687,19 +4131,25 @@
             await refreshChatHistory();
         }
 
-        function clearChat() {
-            chatContainer.innerHTML = `
-                <div id="welcome-block" class="welcome-shell max-w-3xl mx-auto">
-                    <div class="welcome-kicker">KIRA SUPERAPP</div>
-                    <div class="welcome-heading-row">
-                        <h1 id="welcome-greeting" class="welcome-heading">${escapeHtml(currentGreeting())}</h1>
-                        <button onclick="openDisplayNameEditor()" class="h-9 w-9 shrink-0 grid place-items-center text-gray-500 hover:text-white" title="Edit display name" aria-label="Edit display name">
-                            <span class="material-symbols-outlined text-[20px]">edit</span>
-                        </button>
-                    </div>
-                    <p id="welcome-prompt" class="welcome-prompt">What would you like to do?</p>
+        function welcomeMarkup() {
+            return `<div id="welcome-block" class="welcome-shell max-w-3xl mx-auto">
+                <div class="welcome-kicker">A LITTLE SPACE TO DO BIG THINGS</div>
+                <div class="welcome-heading-row">
+                    <h1 id="welcome-greeting" class="welcome-heading">${escapeHtml(currentGreeting())}</h1>
+                    <button onclick="openDisplayNameEditor()" class="icon-button" title="Edit display name" aria-label="Edit display name"><span class="material-symbols-outlined">edit_square</span></button>
                 </div>
-            `;
+                <p id="welcome-prompt" class="welcome-prompt">A thought, a question, a project. Start anywhere.<br>Let’s make something of it.</p>
+                <div class="welcome-actions" aria-label="Ways to get started">
+                    <button class="welcome-action" onclick="useWelcomeAction('research')"><span class="material-symbols-outlined">travel_explore</span><span><strong>Explore an idea</strong><small>Research & make sense of it</small></span></button>
+                    <button class="welcome-action" onclick="useWelcomeAction('create')"><span class="material-symbols-outlined">description</span><span><strong>Create something</strong><small>Documents, decks & more</small></span></button>
+                    <button class="welcome-action" onclick="useWelcomeAction('code')"><span class="material-symbols-outlined">terminal</span><span><strong>Build with code</strong><small>From first idea to a fix</small></span></button>
+                </div>
+            </div>`;
+        }
+
+        function clearChat() {
+            chatContainer.innerHTML = welcomeMarkup();
+            updateWorkspaceWelcome();
         }
 
         function formatAttachmentSize(bytes) {
@@ -3710,6 +4160,7 @@
         }
 
         function renderAttachmentTray() {
+            syncSendButton();
             attachmentTray.innerHTML = '';
             attachmentTray.classList.toggle('hidden', pendingAttachments.length === 0);
             pendingAttachments.forEach((item, index) => {
@@ -3854,6 +4305,7 @@
             if (!text) return;
 
             userInput.value = '';
+            syncSendButton();
             userInput.style.height = 'auto';
 
             await queuePrompt(text);
@@ -3901,8 +4353,7 @@
                 size: item.size,
                 mime: item.mime
             }));
-            const selectedBrain = currentMode !== 'vibe_coding' && modelSelector.value === 'kira'
-                ? 'kira' : 'orchestrator';
+            const selectedBrain = currentMode === 'vibe_coding' ? 'orchestrator' : modelSelector.value;
             const agenticVisual = currentMode === 'agent' || currentMode === 'vibe_coding' || promptText.startsWith('/');
 
             renderUserMessage(promptText, Date.now() / 1000, promptAttachments);
@@ -3911,7 +4362,12 @@
             updateSystemStatus("Thinking");
             setAIStripState(agenticVisual ? 'agentic' : 'off');
             if (isVoiceActive) {
-                setVoiceLiveState('thinking', `${selectedBrain === 'kira' ? 'KIRA Live 1' : 'Orchestrator V1'} is thinking...`);
+                const brainLabel = selectedBrain === 'kira' ? 'KIRA Live 1' :
+                    selectedBrain === 'orchestrator_v15' ? 'Orchestrator v1.5' :
+                    selectedBrain === 'orchestrator_v15_thinking' ? 'Orchestrator v1.5 Thinking Preview' :
+                    selectedBrain === 'orchestrator_v15_ppt_preview' ? 'Horizon 1 Preview' :
+                    selectedBrain === 'orchestrator_v15_orchestral_preview' ? 'Diagonal Orchestral Research Preview' : 'Orchestrator V1';
+                setVoiceLiveState('thinking', `${brainLabel} is thinking...`);
             } else {
                 setVoiceLiveState('ready', '');
             }
@@ -3922,7 +4378,8 @@
                 backendMode,
                 selectedBrain,
                 currentChatId,
-                promptAttachments
+                promptAttachments,
+                ['orchestrator_v15_orchestral_preview', 'orchestrator_v15_ppt_preview'].includes(selectedBrain) ? 'diagonal' : thinkingEffortSelector.value
             );
 
             if (result && result.chat_id) {
@@ -4400,6 +4857,7 @@
             appendVoiceTranscript('You', clean);
             voiceLiveInput.value = '';
             modelSelector.value = 'kira';
+            syncThinkingEffortVisibility();
             if (!options.alreadyRecorded && window.pywebview.api.complete_voice_turn) {
                 try {
                     await window.pywebview.api.complete_voice_turn(clean, 'typed_voice', 1, false);
@@ -4470,6 +4928,7 @@
 
         function insertSlash(command) {
             userInput.value = command;
+            syncSendButton();
             userInput.focus();
             userInput.selectionStart = userInput.value.length;
             userInput.selectionEnd = userInput.value.length;
@@ -4612,7 +5071,7 @@
             let suppress = false;
             const privateHeading = /^\s*(#+\s*)?(orchestrator\s+logic|thought\s*process|private\s*reasoning|chain\s*of\s*thought|tree\s*of\s*thought|tot\s*reasoning|scratchpad|internal\s*(plan|logic|reasoning))\s*:?\s*/i;
             const privateLabel = /^\s*([-*]\s*)?(\d+[.)]\s*)?(INTENT|SLOTS|CLARIFY|PLAN|INSPECT|PERMISSION|EXECUTE|VERIFY|REPORT|WORKFLOW STATE|SAFETY CHECK|BRANCH [A-Z0-9_-]+|THOUGHT|THOUGHTS|RATIONALE)\s*:/i;
-            const toolStart = /^\s*(\[\s*(OS_MAP|SYSTEM_REPORT|MEMORY_REPORT|APP_LIST|WINDOW_REPORT|VIRUS_SCAN|OPTIMISE_SCAN|READ_FILE|LIST_DIR|SEARCH_FILES|FIND_IN_COMPUTER|NATIVE_PDF|NATIVE_PPTX|NATIVE_DOCX|OPEN|CLOSE|WEB_SEARCH|WEB_OPEN|WEB_FETCH|WEB_BROWSE|IDE_CONTEXT|PROJECT_INDEX|MCP_DISCOVER|MCP_BOOTSTRAP|MCP_DRAFT|SHELL|COMMAND|TERMINAL|APPLESCRIPT)\s*\]|```(bash|sh|zsh|shell|terminal))/i;
+            const toolStart = /^\s*(\[\s*(OS_MAP|SYSTEM_REPORT|MEMORY_REPORT|APP_LIST|WINDOW_REPORT|VIRUS_SCAN|OPTIMISE_SCAN|READ_FILE|LIST_DIR|SEARCH_FILES|FIND_IN_COMPUTER|NATIVE_PDF|NATIVE_PPTX|NATIVE_DOCX|OPEN|CLOSE|WEB_SEARCH|WEB_OPEN|WEB_FETCH|WEB_BROWSE|BROWSER_TOOL|TREE_MEMORY|IDE_CONTEXT|PROJECT_INDEX|MCP_DISCOVER|MCP_BOOTSTRAP|MCP_DRAFT|SHELL|COMMAND|TERMINAL|APPLESCRIPT)\s*\]|```(bash|sh|zsh|shell|terminal))/i;
 
             for (const line of lines) {
                 const trimmed = line.trim();
@@ -4654,7 +5113,7 @@
             ` : '';
 
             const wrapper = document.createElement('div');
-            wrapper.className = "max-w-3xl mx-auto flex items-start space-x-4 mb-8 pl-4";
+            wrapper.className = "chat-message message-user flex items-start";
             wrapper.innerHTML = `
                 <div class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0 mt-1">
                     <span class="material-symbols-outlined text-[18px] text-white">person</span>
@@ -4678,7 +5137,7 @@
 
             const wrapper = document.createElement('div');
             wrapper.id = "loading-indicator";
-            wrapper.className = "max-w-3xl mx-auto flex items-start space-x-4 mb-8 pl-4";
+            wrapper.className = "chat-message flex items-start";
             wrapper.innerHTML = `
                 <div class="w-8 h-8 flex items-center justify-center shrink-0 mt-1">
                     <span class="material-symbols-outlined text-[24px] sparkle-icon">auto_awesome</span>
@@ -4765,7 +5224,7 @@
             const timeLabel = formatMessageTime(createdAt);
 
             const wrapper = document.createElement('div');
-            wrapper.className = "max-w-3xl mx-auto flex items-start space-x-4 mb-8 pl-4";
+            wrapper.className = "chat-message message-assistant flex items-start";
             wrapper.innerHTML = `
                 <div class="w-8 h-8 flex items-center justify-center shrink-0 mt-1">
                     <span class="material-symbols-outlined text-[24px] text-[#f5f5f5]">auto_awesome</span>
@@ -4788,7 +5247,7 @@
             removeLoadingIndicator();
 
             const wrapper = document.createElement('div');
-            wrapper.className = "max-w-3xl mx-auto flex items-start space-x-4 mb-8 pl-4";
+            wrapper.className = "chat-message flex items-start";
             wrapper.dataset.permissionId = update.id;
             wrapper.innerHTML = `
                 <div class="w-8 h-8 flex items-center justify-center shrink-0 mt-1">
@@ -4846,7 +5305,7 @@
             removeLoadingIndicator();
 
             const wrapper = document.createElement('div');
-            wrapper.className = "max-w-3xl mx-auto flex items-start space-x-4 mb-8 pl-4";
+            wrapper.className = "chat-message flex items-start";
             wrapper.innerHTML = `
                 <div class="w-8 h-8 flex items-center justify-center shrink-0 mt-1">
                     <span class="material-symbols-outlined text-[24px] text-red-500">report</span>
@@ -5104,6 +5563,7 @@
         }
 
         userInput.addEventListener('input', function() {
+            syncSendButton();
             this.style.height = 'auto';
             this.style.height = this.scrollHeight + 'px';
             updateSlashPanel();

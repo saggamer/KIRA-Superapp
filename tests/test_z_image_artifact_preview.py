@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from PIL import Image
 
 from actions import KiraActionsMixin
 from orchestrator_v15.kira_document_candidate import KiraDocumentCandidate
@@ -65,7 +66,7 @@ class ZImageArtifactPreviewTests(unittest.TestCase):
             exe.write_text('')
 
             def fake_run(command, **kwargs):
-                Path(command[command.index('--output') + 1]).write_bytes(b'png' * 1024)
+                Image.new('RGB', (128, 96), '#888').save(command[command.index('--output') + 1])
                 return type('Result', (), {'returncode': 0})()
 
             with patch.dict(os.environ, {'KIRA_Z_IMAGE_MODEL_DIR': str(model)}), patch(
@@ -87,11 +88,11 @@ class ZImageArtifactPreviewTests(unittest.TestCase):
             exe.parent.mkdir(parents=True)
             exe.write_text('')
             source, mask = root / 'source.png', root / 'mask.png'
-            source.write_bytes(b'input')
-            mask.write_bytes(b'mask')
+            Image.new('RGB', (128, 96), '#ccc').save(source)
+            Image.new('L', (128, 96), 255).save(mask)
 
             def fake_run(command, **kwargs):
-                Path(command[command.index('--output') + 1]).write_bytes(b'png' * 1024)
+                Image.new('RGB', (128, 96), '#888').save(command[command.index('--output') + 1])
                 return type('Result', (), {'returncode': 0})()
 
             with patch.dict(os.environ, {'KIRA_Z_IMAGE_MODEL_DIR': str(model)}), patch(
@@ -132,7 +133,7 @@ class ZImageArtifactPreviewTests(unittest.TestCase):
             Image.new('RGB', (128, 96), '#ccc').save(source)
 
             def fake_run(command, **kwargs):
-                Path(command[command.index('--output') + 1]).write_bytes(b'png' * 1024)
+                Image.new('RGB', (128, 96), '#888').save(command[command.index('--output') + 1])
                 return type('Result', (), {'returncode': 0})()
 
             with patch.dict(os.environ, {'KIRA_Z_IMAGE_MODEL_DIR': str(model)}), patch(

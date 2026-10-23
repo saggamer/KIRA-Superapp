@@ -6,6 +6,42 @@ from actions import KiraActionsMixin
 
 
 class DiagonalBrowserActionTests(unittest.TestCase):
+    def test_history_tools_map_filters_ids_and_pagination(self):
+        agent = KiraActionsMixin()
+        block = """[BROWSER_TOOL]
+ACTION: search_history
+QUERY: previous orchid searches
+KIND: search
+SOURCE: llm
+LIMIT: 5
+OFFSET: 10
+[/BROWSER_TOOL]
+[BROWSER_TOOL]
+ACTION: read_history
+HISTORY_ID: saved-entry
+TEXT_OFFSET: 5000
+RESULT_OFFSET: 10
+[/BROWSER_TOOL]
+[BROWSER_TOOL]
+ACTION: revisit_history
+HISTORY_ID: saved-entry
+RESULT_INDEX: 2
+TABID: tab-a
+[/BROWSER_TOOL]"""
+        with patch('diagonal_browser.kira_client.call_browser_tool', return_value={'cached': True}) as call:
+            agent._run_web_search_tools(block)
+        self.assertEqual(call.call_args_list[0].args, ('search_history', {'query': 'previous orchid searches', 'kind': 'search', 'source': 'llm', 'limit': 5, 'offset': 10}))
+        self.assertEqual(call.call_args_list[1].args, ('read_history', {'historyId': 'saved-entry', 'textOffset': 5000, 'resultOffset': 10}))
+        self.assertEqual(call.call_args_list[2].args, ('revisit_history', {'historyId': 'saved-entry', 'resultIndex': 2, 'tabId': 'tab-a'}))
+
+    def test_history_rejects_invalid_offsets_before_mcp(self):
+        agent = KiraActionsMixin()
+        for action, field, value in [('search_history', 'OFFSET', '-1'), ('revisit_history', 'RESULT_INDEX', 'latest'), ('read_history', 'TEXT_OFFSET', '-5')]:
+            with self.subTest(field=field), patch('diagonal_browser.kira_client.call_browser_tool') as call:
+                result = agent._run_web_search_tools(f'[BROWSER_TOOL]\nACTION: {action}\nHISTORY_ID: entry\n{field}: {value}\n[/BROWSER_TOOL]')
+                call.assert_not_called()
+                self.assertIn('nonnegative integer', result)
+
     def test_browser_action_audit_excludes_filled_values(self):
         agent = KiraActionsMixin()
         agent._log_agentic_event = Mock()

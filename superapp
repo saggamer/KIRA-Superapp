@@ -3,10 +3,9 @@ set -u
 
 SCRIPT_PATH="${0:A}"
 APP_DIR="${KIRA_SUPERAPP_HOME:-$(cd "$(dirname "$SCRIPT_PATH")" && pwd)}"
-PYTHON="$APP_DIR/.venv/bin/python"
-if [[ ! -x "$PYTHON" && -x "$APP_DIR/.venv-kira-live/bin/python" ]]; then
-  PYTHON="$APP_DIR/.venv-kira-live/bin/python"
-fi
+cd "$APP_DIR" || exit 1
+source "$APP_DIR/scripts/kira_runtime.sh"
+PYTHON="$(kira_runtime_python)"
 
 if [[ "${1:-}" == "--kira-live-experimental" ]]; then
   export KIRA_LIVE1_EXPERIMENTAL=1

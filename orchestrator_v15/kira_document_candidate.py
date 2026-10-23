@@ -1,6 +1,8 @@
 """Verified PDF and Word-document pathway for the Kira artifact preview."""
 import re
 
+from orchestrator_v15.artifact_content import edited_image_issue, visible_content_issue
+
 from orchestrator_v15.presentation_controller import CREATE, PresentationController, action_tag, clean_local_image_fields
 
 
@@ -41,7 +43,9 @@ class KiraDocumentCandidate(PresentationController):
             'For PDF, write at least 160 readable characters with clear sections. For DOCX, write at '
             'least four substantive paragraphs and roughly 500 readable characters. If images are '
             'requested, place distinct analyzed images beside the sections they explain; do not use '
-            'image paths as filler text. Keep the entire document action under 450 words so its closing '
+            'image paths as filler text. Embed the edited result when an edit is requested. '
+            'Keep image-making instructions out of all visible document content. '
+            'Keep the entire document action under 450 words so its closing '
             f'[/{self.output_tag}] tag fits in the response budget. '
             f'When ready return exactly one closed [{self.output_tag}] block with {shape}; '
             f'close it with [/{self.output_tag}]. Kira verifies the file before completion. '
@@ -134,6 +138,9 @@ class KiraDocumentCandidate(PresentationController):
             return f'Embed {self.required_images} distinct analyzed image(s).'
         if any(path not in self.analyzed_image_paths for path in images):
             return 'Embed only local images analyzed with IMAGE_ANALYZE.'
+        issue = edited_image_issue(self, images) or visible_content_issue(body)
+        if issue:
+            return issue
         return None
 
     def record(self, answer, result):

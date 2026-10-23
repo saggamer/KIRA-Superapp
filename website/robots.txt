@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://kira-superapp.vercel.app/sitemap.xml

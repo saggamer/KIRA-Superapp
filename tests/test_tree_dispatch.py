@@ -43,13 +43,14 @@ class TreeDispatchTests(unittest.TestCase):
             '_run_permissioned_blocks', '_execute_agentic_code',
         )
         for name in names:
-            setattr(self.actions, name, Mock(side_effect=lambda text, *args: text))
+            setattr(self.actions, name, Mock(side_effect=lambda text, *args, **kwargs: text))
         self.actions._extract_bracket_command = Mock(return_value='')
 
     def test_dispatch_skips_absent_branches_and_retains_permission_handler(self):
         self.prepare_dispatch()
         source = '[ native_docx ]TITLE: Test[/ native_docx ]'
         self.actions._run_agentic_capabilities_inner(source, 'create docx', 'chat')
+        self.actions._generate_native_pdf.assert_called_once_with(source, raw_prompt='create docx')
         self.actions._generate_native_docx_blocks.assert_called_once()
         self.actions._generate_native_pptx_blocks.assert_not_called()
         self.actions._run_os_surface_tools.assert_not_called()

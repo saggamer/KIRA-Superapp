@@ -133,7 +133,8 @@ class ArtifactRoutingTests(unittest.TestCase):
         from test_tree_web_artifacts import APP_DIR
         ui = (APP_DIR / "ui.html").read_text()
         self.assertNotIn('class="kira-logo-image"', ui)
-        self.assertIn('class="kira-brand-product">SUPERAPP', ui)
+        self.assertIn('class="kira-brand-name">KIRA</div>', ui)
+        self.assertIn('<title>KIRA Superapp</title>', ui)
 
     def test_artifact_reloads_worker_after_timeout(self):
         self.prepare_model(['[NATIVE_DOCX]\nTITLE: Science\n[/NATIVE_DOCX]'])

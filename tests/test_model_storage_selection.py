@@ -1,6 +1,9 @@
 import json
 import os
 import sys
+import tempfile
+import unittest
+from pathlib import Path
 
 
 APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,28 +30,33 @@ def _make_model(path, *, allocate=True):
     return path
 
 
-def test_first_existing_path_skips_dataless_model(tmp_path):
-    brain = _brain_without_init()
-    cloud_model = _make_model(tmp_path / "cloud", allocate=False)
-    local_model = _make_model(tmp_path / "local", allocate=True)
+class ModelStorageSelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
 
-    selected = brain._first_existing_path([str(cloud_model), str(local_model)])
+    def test_first_existing_path_skips_dataless_model(self):
+        brain = _brain_without_init()
+        cloud_model = _make_model(self.root / "cloud", allocate=False)
+        local_model = _make_model(self.root / "local", allocate=True)
 
-    assert selected == str(local_model)
+        selected = brain._first_existing_path([str(cloud_model), str(local_model)])
 
+        self.assertEqual(selected, str(local_model))
 
-def test_sharded_model_residency_uses_index(tmp_path):
-    brain = _brain_without_init()
-    model = tmp_path / "sharded"
-    model.mkdir()
-    (model / "config.json").write_text("{}", encoding="utf-8")
-    (model / "tokenizer.json").write_text("{}", encoding="utf-8")
-    shard = model / "model-00001-of-00001.safetensors"
-    shard.write_bytes(b"x" * (1024 * 1024 + 1))
-    (model / "model.safetensors.index.json").write_text(
-        json.dumps({"weight_map": {"model.weight": shard.name}}),
-        encoding="utf-8",
-    )
+    def test_sharded_model_residency_uses_index(self):
+        brain = _brain_without_init()
+        model = self.root / "sharded"
+        model.mkdir()
+        (model / "config.json").write_text("{}", encoding="utf-8")
+        (model / "tokenizer.json").write_text("{}", encoding="utf-8")
+        shard = model / "model-00001-of-00001.safetensors"
+        shard.write_bytes(b"x" * (1024 * 1024 + 1))
+        (model / "model.safetensors.index.json").write_text(
+            json.dumps({"weight_map": {"model.weight": shard.name}}),
+            encoding="utf-8",
+        )
 
-    assert brain._is_loadable_model_path(str(model))
-    assert brain._is_model_storage_resident(str(model))
+        self.assertTrue(brain._is_loadable_model_path(str(model)))
+        self.assertTrue(brain._is_model_storage_resident(str(model)))

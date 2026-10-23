@@ -96,6 +96,14 @@ def install_fast_transformers_shim():
         def get_vocab(self):
             return self.vocab
 
+        def __len__(self):
+            return self.vocab_size
+
+        def convert_ids_to_tokens(self, ids):
+            if isinstance(ids, int):
+                return self._tokenizer.id_to_token(ids)
+            return [self._tokenizer.id_to_token(int(item)) for item in ids]
+
         def apply_chat_template(
             self,
             messages,
@@ -144,9 +152,14 @@ def install_fast_transformers_shim():
     shim.AutoTokenizer = AutoTokenizer
     shim.PreTrainedTokenizer = KiraFastTokenizer
     shim.PreTrainedTokenizerFast = KiraFastTokenizer
+    shim.PreTrainedTokenizerBase = KiraFastTokenizer
+    shim.__path__ = []
     shim.__version__ = "kira-fast-shim"
     shim._kira_fast_tokenizer_shim = True
     sys.modules["transformers"] = shim
+    tokenizer_base = types.ModuleType("transformers.tokenization_utils_base")
+    tokenizer_base.PreTrainedTokenizerBase = KiraFastTokenizer
+    sys.modules["transformers.tokenization_utils_base"] = tokenizer_base
 
 
 def send(payload):

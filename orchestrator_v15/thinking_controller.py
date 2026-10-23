@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from orchestrator_v15.contracts import parse_block
 from orchestrator_v15.graph import EvidenceGraph, Limits
+from orchestrator_v15.adapter_router import BROWSER_HISTORY
 
 EFFECT_TARGET = re.compile(r'\b(?:purchase|pay|send|submit|place order|confirm booking|book now|subscribe)\b', re.I)
 
@@ -60,7 +61,8 @@ class ThinkingController:
             r'\bbottom of the page\b', request, re.I))
         self.requested_urls = tuple(dict.fromkeys(
             url.rstrip('.,;)') for url in re.findall(r'https?://[^\s,]+', request)))
-        self.must_navigate = bool(self.requested_urls)
+        self.history_requested = bool(BROWSER_HISTORY.search(request))
+        self.must_navigate = bool(self.requested_urls) and not self.history_requested
         self.effect_pending = False
         self.effect_executed = False
         self.effect_verified = False
@@ -141,7 +143,8 @@ class ThinkingController:
             return 'Use only the available BROWSER_TOOL contract for this browser task.'
         action = fields.get('ACTION', '').lower()
         if action not in {'search', 'navigate', 'new_tab', 'observe', 'act', 'snapshot', 'scroll',
-                          'inspect_page', 'back', 'select_tab', 'list_tabs'}:
+                          'inspect_page', 'back', 'select_tab', 'list_tabs',
+                          'search_history', 'read_history', 'revisit_history'}:
             return ('Invalid ACTION. Use search for web results, new_tab to open a browser, '
                     'navigate for a URL, observe for page evidence, or act for interaction.')
         if fields.get('TABID', '').lower() in {'latest', 'current', 'active'}:
@@ -161,6 +164,22 @@ class ThinkingController:
             return 'ACTION: navigate requires a URL field.'
         if self.effect_pending and action != 'observe':
             return 'An external-effect click already occurred. Do not repeat it or navigate away; use ACTION: observe to verify the result.'
+        if action in {'search_history', 'read_history', 'revisit_history'}:
+            if action != 'search_history':
+                history_id = fields.get('HISTORY_ID', '')
+                known_ids = {item.get('historyId') for observation in self.observations
+                             for item in [observation, *observation.get('entries', [])]
+                             if isinstance(item, dict) and item.get('historyId')}
+                if not history_id or history_id not in known_ids and history_id not in self.request:
+                    return 'Use a HISTORY_ID returned by search_history or a prior browser response. Search history first if no saved ID is known.'
+            for key in ('OFFSET', 'TEXT_OFFSET', 'RESULT_OFFSET', 'RESULT_INDEX'):
+                if key in fields:
+                    try:
+                        if int(fields[key]) < 0:
+                            raise ValueError
+                    except ValueError:
+                        return key + ' must be a nonnegative integer.'
+            return None
         if self.must_navigate and 'navigate' not in self.actions and action != 'navigate':
             return 'The user asked to open a URL. Navigate to it before observing or acting on the page.'
         observed_links = {
@@ -312,6 +331,8 @@ class ThinkingController:
         return f'[BROWSER_TOOL]\nACTION: observe\nTABID: {tabid}\n[/BROWSER_TOOL]'
 
     def unvisited_urls(self):
+        if not self.must_navigate:
+            return []
         visited = {fields.get('URL') for fields in self.action_fields.values()
                    if fields.get('ACTION', '').lower() == 'navigate'}
         return [url for url in self.requested_urls if url not in visited]

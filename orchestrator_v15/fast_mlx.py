@@ -50,7 +50,9 @@ def browser_evidence_snapshot(controller):
         observation = controller.observations[index]
         row = {'action': controller.actions[index]}
         for key in ('url', 'title', 'tabId', 'observationId', 'screenshot', 'status', 'error',
-                    'scroll', 'moved'):
+                    'scroll', 'moved', 'historyId', 'cached', 'kind', 'query', 'total',
+                    'offset', 'nextOffset', 'nextTextOffset', 'nextResultOffset',
+                    'createdAt', 'updatedAt'):
             if observation.get(key) is not None:
                 row[key] = observation[key]
         if observation.get('text'):
@@ -62,8 +64,15 @@ def browser_evidence_snapshot(controller):
         if isinstance(observation.get('results'), list):
             row['results'] = [
                 {'title': str(item.get('title', ''))[:120],
-                 'url': str(item.get('href') or item.get('url') or '')[:400]}
+                 'url': str(item.get('href') or item.get('url') or '')[:400],
+                 **({'resultIndex': item['resultIndex']} if 'resultIndex' in item else {})}
                 for item in observation['results'][:6] if isinstance(item, dict)]
+        if isinstance(observation.get('entries'), list):
+            row['entries'] = [
+                {key: str(item[key])[:limit] for key, limit in (
+                    ('historyId', 80), ('kind', 12), ('title', 120), ('url', 400),
+                    ('createdAt', 40), ('snippet', 260)) if key in item}
+                for item in observation['entries'][:5] if isinstance(item, dict)]
         if isinstance(observation.get('elements'), list):
             row['elements'] = [
                 {key: item[key] for key in ('index', 'role', 'name', 'value', 'options') if key in item}

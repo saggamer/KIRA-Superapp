@@ -32,10 +32,12 @@ BRANCH_SCHEMA = (
 ACTION_FIELDS = frozenset({
     'ACTION', 'QUERY', 'URL', 'TABID', 'SCREENSHOT', 'OPERATION', 'TARGET_NAME',
     'TARGET_ROLE', 'SELECTOR', 'INDEX', 'VALUE', 'TEXT', 'OBSERVATION_ID', 'PIXELS',
+    'HISTORY_ID', 'KIND', 'SOURCE', 'LIMIT', 'OFFSET', 'TEXT_OFFSET', 'RESULT_OFFSET', 'RESULT_INDEX',
 })
 ALLOWED_BROWSER_ACTIONS = frozenset({
     'search', 'navigate', 'new_tab', 'observe', 'act', 'snapshot',
     'inspect_page', 'back', 'select_tab', 'list_tabs', 'scroll',
+    'search_history', 'read_history', 'revisit_history',
 })
 
 

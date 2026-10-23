@@ -13,7 +13,7 @@ test('browser can visit, interact, capture and record a local page', async () =>
     res.end('<title>Browser Fixture</title><input id="name"><button id="go" onclick="document.querySelector(\'#out\').textContent=document.querySelector(\'#name\').value">Go</button><label><input id="agree" type="checkbox">Agree</label><label for="choice">Choice</label><select id="choice"><option value="a">A</option><option value="b">B</option></select><input type="password" value="fixture-secret"><p id="out"></p>');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = new DiagonalBrowser();
+  const browser = new DiagonalBrowser({ historyEnabled: false });
   let visualMap;
   const url = `http://127.0.0.1:${server.address().port}/`;
   try {
@@ -87,7 +87,7 @@ test('scroll returns visible lower text and a bounded position', async () => {
     res.end('<title>Long Page</title><h1>Top heading</h1><div style="height:1800px"></div><h2>Lower heading: Details</h2>');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = new DiagonalBrowser();
+  const browser = new DiagonalBrowser({ historyEnabled: false });
   try {
     const first = await browser.navigate(`http://127.0.0.1:${server.address().port}/`);
     assert.equal(first.scroll.atTop, true);
@@ -141,7 +141,7 @@ test('OAuth-style popup is tracked and can return to its opener', async () => {
       : '<title>App</title><button onclick="window.open(\'/popup\', \'oauth\', \'width=480,height=640\')">Sign in</button><p id="status">waiting</p><script>addEventListener("message", event => { if (event.origin === location.origin) document.querySelector("#status").textContent=event.data })</script>');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = new DiagonalBrowser();
+  const browser = new DiagonalBrowser({ historyEnabled: false });
   try {
     const app = await browser.navigate(`http://127.0.0.1:${server.address().port}/`);
     const popup = await browser.act({ operation: 'click', role: 'button', targetName: 'Sign in' });
@@ -183,7 +183,7 @@ test('Kira browser restores cookie and local storage auth state', async () => {
 });
 
 test('failed video initialization still clears recording state', async () => {
-  const browser = new DiagonalBrowser();
+  const browser = new DiagonalBrowser({ historyEnabled: false });
   let closed = false;
   browser.pages.set('source', { url: () => 'https://example.com/' });
   browser.pages.set('recording', { url: () => 'https://example.com/final' });
@@ -198,4 +198,51 @@ test('failed video initialization still clears recording state', async () => {
   assert.equal(browser.recording, null);
   assert.equal(browser.active, 'source');
   assert.equal(browser.pages.has('recording'), false);
+});
+
+test('saved page history survives restart, reads offline, and reopens live sources', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'diagonal-page-history-'));
+  let revision = 'Original orchid research';
+  let requests = 0;
+  const server = http.createServer((_req, res) => {
+    requests++;
+    res.setHeader('content-type', 'text/html');
+    res.end(`<title>Orchid source</title><h1>${revision}</h1><p>${'evidence '.repeat(1700)}unique lower passage</p><input type="password" value="never-save-this-password">`);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}/orchids`;
+  const first = new DiagonalBrowser({ profileDir: dir });
+  const restarted = new DiagonalBrowser({ profileDir: dir });
+  try {
+    const visited = await first.navigate(url);
+    assert.ok(visited.historyId);
+    assert.equal((await first.observe(visited.tabId)).historyId, visited.historyId);
+    assert.equal((await first.inspect(visited.tabId)).historyId, visited.historyId);
+    assert.equal((await first.searchHistory({ kind: 'page', query: 'unique lower passage' })).total, 1);
+    await first.shutdown();
+    const cached = await restarted.readHistory(visited.historyId);
+    assert.equal(restarted.browser, null);
+    assert.match(cached.text, /Original orchid/); assert.equal(cached.text.includes('never-save-this-password'), false);
+    const requestCount = requests;
+    await restarted.searchHistory({ query: 'orchid research' });
+    assert.equal(requests, requestCount);
+    const search = await restarted.history.save({ kind: 'search', source: 'llm', query: 'orchid references', results: [{ title: 'Orchid source', url }] });
+    assert.equal((await restarted.revisitHistory(search.id)).cached, true);
+    assert.equal(restarted.browser, null);
+    revision = 'Updated orchid research';
+    const reopened = await restarted.revisitHistory(search.id, 0);
+    assert.match(reopened.text, /Updated orchid/);
+    assert.equal(reopened.revisitedHistoryId, search.id);
+    assert.notEqual(reopened.historyId, visited.historyId);
+    assert.match((await restarted.readHistory(visited.historyId)).text, /Original orchid/);
+    await assert.rejects(restarted.revisitHistory(search.id, 3), /resultIndex/);
+    await restarted.shutdown();
+    await new Promise(resolve => server.close(resolve));
+    assert.match((await restarted.readHistory(visited.historyId)).text, /Original orchid/);
+  } finally {
+    await restarted.shutdown().catch(() => {});
+    await first.shutdown().catch(() => {});
+    server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
 });

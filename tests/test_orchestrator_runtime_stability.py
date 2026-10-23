@@ -1,6 +1,11 @@
 import inspect
 import os
 import queue
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import time
 import unittest
 
@@ -32,6 +37,33 @@ class _LiveProcess:
 
 
 class OrchestratorRuntimeStabilityTests(unittest.TestCase):
+    def test_fast_tokenizer_loads_with_installed_mlx_lm(self):
+        from tokenizers import Tokenizer
+        from tokenizers.models import WordLevel
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            Tokenizer(WordLevel({'[UNK]': 0, 'hello': 1}, unk_token='[UNK]')).save(
+                str(root / 'tokenizer.json'))
+            (root / 'tokenizer_config.json').write_text(json.dumps({'eos_token': '[UNK]'}))
+            # The worker starts fresh: importing real Transformers in this
+            # process first would conceal a broken lightweight adapter.
+            result = subprocess.run(
+                [sys.executable, '-c', '''
+from pathlib import Path
+import sys
+from model_worker import install_fast_transformers_shim
+install_fast_transformers_shim()
+from mlx_lm.tokenizer_utils import load
+tokenizer = load(Path(sys.argv[1]))
+assert tokenizer.encode('hello', add_special_tokens=False) == [1]
+assert tokenizer.convert_ids_to_tokens([0, 1]) == ['[UNK]', 'hello']
+assert len(tokenizer._tokenizer) == 2
+''', directory],
+                cwd=APP_ROOT, capture_output=True, text=True, timeout=30,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def _brain(self):
         brain = KiraBrain.__new__(KiraBrain)
         brain.app_root = APP_ROOT

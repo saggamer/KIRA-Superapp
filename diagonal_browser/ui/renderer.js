@@ -12,6 +12,8 @@ let searchMode = 'web';
 let imageResults = [];
 let imageIndex = 0;
 let searchRequestId = 0;
+let historyRequestId = 0;
+let historyFilters = { query: '', kind: 'all', source: 'all' };
 
 function notify(message, artifact) {
   clearTimeout(toastTimer);
@@ -168,6 +170,7 @@ function renderResults(tab) {
   sub.textContent = searchMode === 'images'
     ? `${data.results.length} image results · Select an image to preview it and visit its source`
     : `${data.results.length} results from DuckDuckGo · Select a result to open it here`;
+  if (data.savedAt) sub.textContent = `Saved ${new Date(data.savedAt).toLocaleString()} · ${data.results.length} historical results · Open a source for a fresh view`;
   headingText.append(heading, sub);
   header.append(headingText, modeSwitch(mode => setSearchMode(mode, data.query)));
   resultsNode.append(header);
@@ -237,7 +240,7 @@ function render(next) {
   $('#reload').disabled = !tab?.url;
   $('#load-progress').hidden = !tab?.loading;
   let context = 'Ready to explore';
-  if (tab?.searchResults) context = `${tab.searchResults.mode === 'images' ? 'Image' : 'Web'} results · DuckDuckGo`;
+  if (tab?.searchResults) context = tab.searchResults.savedAt ? 'Saved search · History' : `${tab.searchResults.mode === 'images' ? 'Image' : 'Web'} results · DuckDuckGo`;
   else if (tab?.url) {
     try { const page = new URL(tab.url); context = `${page.protocol.replace(':', '').toUpperCase()} · ${page.hostname}`; }
     catch { context = tab.url; }
@@ -377,15 +380,101 @@ function renderAccounts() {
   };
   body.append(note, form);
 }
+function historyText(tag, className, value) {
+  const node = document.createElement(tag);
+  node.className = className; node.textContent = value;
+  return node;
+}
+
+async function renderHistory() {
+  const request = ++historyRequestId;
+  const body = $('#panel-body'); body.replaceChildren();
+  const form = document.createElement('form'); form.className = 'history-filters';
+  const input = document.createElement('input'); input.type = 'search'; input.placeholder = 'Search queries, titles, URLs, and saved page text'; input.value = historyFilters.query;
+  input.setAttribute('aria-label', 'Search saved history');
+  const select = (label, key, values) => {
+    const node = document.createElement('select'); node.setAttribute('aria-label', label);
+    for (const [value, text] of values) { const option = document.createElement('option'); option.value = value; option.textContent = text; node.append(option); }
+    node.value = historyFilters[key]; return node;
+  };
+  const kind = select('History type', 'kind', [['all', 'Searches + pages'], ['search', 'Searches'], ['page', 'Saved pages']]);
+  const source = select('History source', 'source', [['all', 'Kira + browser'], ['llm', 'Kira only'], ['desktop', 'Browser only']]);
+  const submit = document.createElement('button'); submit.type = 'submit'; submit.textContent = 'Search history';
+  form.append(input, kind, source, submit);
+  const status = historyText('p', 'history-meta', 'Loading saved history…'); status.setAttribute('role', 'status');
+  const list = document.createElement('div'); list.className = 'history-list';
+  const footer = document.createElement('div'); footer.className = 'history-pagination';
+  body.append(form, status, list, footer);
+  form.onsubmit = event => { event.preventDefault(); historyFilters = { query: input.value, kind: kind.value, source: source.value }; renderHistory(); };
+  async function load(offset = 0) {
+    const result = await run('searchHistory', { ...historyFilters, offset, limit: 20 });
+    if (!result || request !== historyRequestId || state.panel !== 'history') return;
+    status.textContent = result.total ? `${result.total} saved ${result.total === 1 ? 'entry' : 'entries'} · Stored locally and available to Kira` : 'No saved history matches. New searches and read pages will appear here.';
+    for (const item of result.entries) {
+      const card = document.createElement('article'); card.className = 'history-card';
+      card.append(historyText('p', 'history-meta', `${item.source === 'llm' ? 'KIRA' : 'BROWSER'} · ${item.kind === 'search' ? `${item.mode === 'images' ? 'Image search' : 'Web search'} · ${item.resultCount} ${item.resultCount === 1 ? 'result' : 'results'}` : 'Read page'} · ${new Date(item.createdAt).toLocaleString()}`));
+      card.append(historyText('h3', '', item.query || item.title || item.url));
+      if (item.url) card.append(historyText('p', 'history-url', item.url));
+      card.append(historyText('p', 'history-snippet', item.snippet));
+      const actions = document.createElement('div'); actions.className = 'history-actions';
+      actions.append(panelButton('Read saved', () => renderHistoryDetail(item.historyId)), panelButton(item.kind === 'search' ? 'Restore results' : 'Open website ↗', () => run('revisitHistory', { historyId: item.historyId })));
+      card.append(actions); list.append(card);
+    }
+    footer.replaceChildren();
+    if (result.nextOffset !== null) {
+      const more = panelButton('Load more', () => { more.disabled = true; load(result.nextOffset); });
+      footer.append(more);
+    }
+  }
+  await load();
+}
+
+async function renderHistoryDetail(historyId) {
+  const request = ++historyRequestId;
+  const entry = await run('readHistory', { historyId });
+  if (!entry || request !== historyRequestId || state.panel !== 'history') return;
+  const body = $('#panel-body'); body.replaceChildren();
+  const actions = document.createElement('div'); actions.className = 'history-actions';
+  actions.append(panelButton('← History', renderHistory), panelButton(entry.kind === 'search' ? 'Restore results' : 'Open website ↗', () => run('revisitHistory', { historyId })));
+  body.append(actions, historyText('h3', 'history-detail-title', entry.query || entry.title || entry.url),
+    historyText('p', 'history-meta', `Saved ${new Date(entry.createdAt).toLocaleString()} · ${entry.source === 'llm' ? 'Kira' : 'Browser'} · ${entry.kind === 'page' ? `${entry.textLength} cached characters${entry.textTruncated ? ' (capture limit reached)' : ''}` : `${entry.resultCount} results`}`),
+    historyText('p', 'history-notice', 'This is a saved copy. Website content may have changed since it was captured.'));
+  const content = document.createElement('div'); content.className = 'history-list';
+  const footer = document.createElement('div'); footer.className = 'history-pagination';
+  body.append(content, footer);
+  function appendChunk(chunk) {
+    if (chunk.kind === 'page') content.append(historyText('pre', 'history-page-text', chunk.text || '(No readable page text was captured.)'));
+    else for (const result of chunk.results) {
+      const card = document.createElement('article'); card.className = 'history-card';
+      card.append(historyText('h3', '', result.title || result.url), historyText('p', 'history-url', result.url), historyText('p', 'history-snippet', result.snippet));
+      if (result.url) card.append(panelButton('Open source ↗', () => run('revisitHistory', { historyId, resultIndex: result.resultIndex })));
+      content.append(card);
+    }
+    footer.replaceChildren();
+    const next = chunk.kind === 'page' ? chunk.nextTextOffset : chunk.nextResultOffset;
+    if (next !== null) {
+      const more = panelButton('Read more', async () => {
+        more.disabled = true;
+        const nextChunk = await run('readHistory', { historyId, [chunk.kind === 'page' ? 'textOffset' : 'resultOffset']: next });
+        if (nextChunk && request === historyRequestId && state.panel === 'history') appendChunk(nextChunk);
+      }); footer.append(more);
+    }
+  }
+  appendChunk(entry);
+}
+
 function renderPanel() {
   const panel = $('#panel');
   panel.hidden = !state.panel;
   if (!state.panel) return;
-  $('#panel-title').textContent = state.panel === 'media' ? 'Capture library' : state.panel === 'accounts' ? 'Email nicknames' : 'URL & page inspector';
-  $('#panel-subtitle').textContent = state.panel === 'media' ? 'Your screenshots and screen recordings, ready to preview.' : state.panel === 'accounts' ? 'Quickly fill a sign-in email field on any page.' : 'Structured page details you can copy or save for Kira and other LLMs.';
+  $('#panel-title').textContent = state.panel === 'history' ? 'Search history' : state.panel === 'media' ? 'Capture library' : state.panel === 'accounts' ? 'Email nicknames' : 'URL & page inspector';
+  $('#panel-subtitle').textContent = state.panel === 'history' ? 'Find what Kira searched, read saved evidence, and return to any source.' : state.panel === 'media' ? 'Your screenshots and screen recordings, ready to preview.' : state.panel === 'accounts' ? 'Quickly fill a sign-in email field on any page.' : 'Structured page details you can copy or save for Kira and other LLMs.';
   const actions = $('#panel-actions'); actions.replaceChildren();
   $('#panel-body').replaceChildren();
-  if (state.panel === 'media') {
+  if (state.panel === 'history') {
+    actions.append(panelButton('Refresh', renderHistory));
+    renderHistory();
+  } else if (state.panel === 'media') {
     actions.append(panelButton('Refresh', async () => { mediaItems = await run('listMedia') || []; renderMedia(); }));
     renderMedia();
   } else if (state.panel === 'accounts') {
@@ -426,6 +515,7 @@ $('#record').onclick = async () => {
 };
 $('#adblock').onclick = () => run('setAdBlock', !state.adBlockEnabled);
 $('#accounts').onclick = () => run('openPanel', 'accounts');
+$('#history').onclick = () => run('openPanel', 'history');
 $('#inspect').onclick = () => run('openPanel', 'inspect');
 $('#media').onclick = async () => { mediaItems = await run('openPanel', 'media') || []; renderMedia(); };
 $('#panel-close').onclick = () => run('closePanel');
@@ -444,6 +534,7 @@ document.addEventListener('keydown', event => {
     return;
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'l') { event.preventDefault(); address.focus(); address.select(); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'h' && event.shiftKey) { event.preventDefault(); run('openPanel', 'history'); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 't') { event.preventDefault(); run('newTab'); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'w') { event.preventDefault(); run('closeTab', state.activeId); }
 });

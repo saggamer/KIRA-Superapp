@@ -1,5 +1,6 @@
 """Exercise the real native session, with a timed simulated speaker and isolated memory."""
 from concurrent.futures import ThreadPoolExecutor
+import argparse
 import json
 from pathlib import Path
 import sys
@@ -18,8 +19,11 @@ from scripts.verify_kira_live_integrated_voice import wer
 
 
 def main():
-    output = ROOT/'training_runs/kira_native_voice_latency_2026_09_29'
-    output.mkdir(exist_ok=False)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output-dir', type=Path,
+                        default=ROOT/'training_runs/kira_native_voice_latency_2026_09_29')
+    output = parser.parse_args().output_dir
+    output.mkdir(parents=True, exist_ok=False)
     audio, rate = sf.read(ROOT/'training_runs/kira_voice_latency_2026_09_29_int8/voice_0.wav', dtype='float32')
     samples = np.interp(np.arange(round(len(audio)*16000/rate))*rate/16000,
                         np.arange(len(audio)), audio).astype(np.float32)

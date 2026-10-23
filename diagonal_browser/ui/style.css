@@ -147,6 +147,22 @@ h1 em { font-style: normal; background: linear-gradient(100deg,#fff0d9,#f5b86f 5
 .account-note { max-width: 680px; color: #c7b6a3; font-size: 13px; line-height: 1.5; }
 .image-viewer { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 26px; }
 .image-viewer[hidden] { display: none; }
+.history-filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 22px; }
+.history-filters input { flex: 1; min-width: 230px; }
+.history-filters input, .history-filters select, .history-filters button, .history-actions button, .history-card button, .history-pagination button { border: 1px solid #69503d; border-radius: 9px; background: #20170f; color: #f6e9d9; padding: 11px 13px; font: inherit; font-size: 13px; }
+.history-filters input:focus, .history-filters select:focus, .history-actions button:hover, .history-card button:hover { outline-color: var(--amber); border-color: var(--amber); }
+.history-filters button { background: #fff7ea; color: #1a130e; font-weight: 700; }
+.history-list { display: grid; gap: 14px; }
+.history-card { padding: 20px; border: 1px solid var(--line); border-radius: 13px; background: #1a130dd9; min-width: 0; }
+.history-card h3 { margin: 8px 0; font-size: 17px; overflow-wrap: anywhere; }
+.history-meta { color: #b6a895; font-size: 12px; line-height: 1.6; margin: 0 0 12px; }
+.history-url { color: var(--amber); font-size: 12px; overflow-wrap: anywhere; }
+.history-snippet { color: #d2c2b0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.history-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.history-pagination { padding: 22px 0; }
+.history-detail-title { font-size: 26px; overflow-wrap: anywhere; }
+.history-notice { color: #c9b69f; padding: 13px 16px; border-left: 2px solid var(--amber); background: #251a11; font-size: 13px; }
+.history-page-text { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.8 system-ui, sans-serif; margin: 0; color: #e6d8c7; }
 .image-viewer-backdrop { position: absolute; inset: 0; border: 0; background: #050403e9; cursor: default; }
 .image-viewer-shell { position: relative; display: flex; flex-direction: column; width: min(1260px,100%); height: min(850px,100%); border: 1px solid #6e5139; border-radius: 18px; overflow: hidden; background: radial-gradient(circle at 80% 0%,#352113,#100d0a 60%); box-shadow: 0 30px 100px #000d; }
 .image-viewer-top { height: 48px; padding: 0 17px 0 24px; display: flex; justify-content: space-between; align-items: center; color: #bcae9d; font-size: 12px; }

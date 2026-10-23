@@ -1,6 +1,7 @@
 """Bounded, observable control for Kira's existing PowerPoint specialist."""
 import re
 import os
+from orchestrator_v15.artifact_content import requested_image_count, without_asset_paths
 
 
 PRESENTATION = re.compile(r'\b(?:pptx?|powerpoint|presentation|slide deck|slides?)\b', re.I)
@@ -55,8 +56,9 @@ class PresentationController:
         self.actions = []
         self.no_web = bool(re.search(r'\b(?:offline|no web|without (?:the )?(?:web|internet))\b', request, re.I))
         self.web_first = bool(re.search(r'\b(?:web|source)\s+(?:search|research)\s+first\b', request, re.I))
+        prose_request = without_asset_paths(request)
         self.needs_current_sources = bool(re.search(
-            r'\b(?:current|latest|today|recent|2026|research|sources?|citations?)\b', request, re.I))
+            r'\b(?:current|latest|today|recent|2026|research|sources?|citations?)\b', prose_request, re.I))
         self.needs_images = bool(re.search(r'\b(?:images?|photos?|visuals?|pictures?|illustrations?|artwork)\b', request, re.I)) and not bool(
             re.search(r'\b(?:no|without)\s+(?:images?|photos?|visuals?|pictures?|illustrations?|artwork)\b|\btext[ -]only\b',
                       request, re.I))
@@ -70,7 +72,8 @@ class PresentationController:
             r'rework(?:ed|ing)?|retouch(?:ed|ing)?|inpaint(?:ed|ing)?)\b',
                                                   request, re.I) and self.needs_images)
         self.required_images = 2 if re.search(r'\b(?:two|2)\s+(?:(?:relevant|original|generated)\s+)?(?:images?|photos?|visuals?|pictures?|illustrations?)\b|\b(?:images|photos|visuals|pictures|illustrations)\b', request, re.I) else 1
-        self.needs_links = bool(re.search(r'\b(?:links?|hyperlinks?|citations?|sources?)\b', request, re.I))
+        self.required_images = requested_image_count(request, default=self.required_images)
+        self.needs_links = bool(re.search(r'\b(?:links?|hyperlinks?|citations?|sources?)\b', prose_request, re.I))
         self.context_has_sources = bool(re.search(r'https?://|\bsource\s*:', request + '\n' + context, re.I))
         # A remote image URL listed by web research is only a candidate. It
         # does not become usable visual evidence until downloaded and analyzed.
@@ -157,6 +160,15 @@ class PresentationController:
             if region and region.group(1).lower() not in {
                     'left', 'right', 'center', 'upper_left', 'upper_right', 'lower_left', 'lower_right'}:
                 return 'IMAGE_EDIT REGION must name a supported image area.'
+            if mask and region:
+                return 'Use either MASK or REGION, not both.'
+            strength = re.search(r'(?im)^\s*STRENGTH\s*:\s*(.+)$', body)
+            if strength:
+                try:
+                    if not 0.1 <= float(strength.group(1)) <= 0.85:
+                        raise ValueError
+                except ValueError:
+                    return 'IMAGE_EDIT STRENGTH must be between 0.1 and 0.85.'
             if re.search(r'\badd\s+(?:a|an|the|one)\b', prompt.group(1), re.I) and not (mask or region):
                 return 'Adding an object needs REGION or an observed MASK for localized inpainting.'
             if not self.wants_edited_images:
@@ -258,7 +270,7 @@ class PresentationController:
         """Analyze a supplied or downloaded local visual once before embedding it."""
         if not (self.needs_images or self.context_has_images):
             return None
-        candidates = list(self.downloaded_image_paths)
+        candidates = sorted(self.edited_image_paths) + sorted(self.downloaded_image_paths)
         candidates.extend(re.findall(
             r'`(/[^`\n]+\.(?:png|jpe?g|webp|gif|bmp))`', self.evidence_text, re.I))
         candidates.extend(re.findall(
@@ -367,11 +379,14 @@ class PresentationController:
             return ('Topic research is complete. Download a relevant observed image URL with '
                     'WEB_IMAGE_DOWNLOAD, or use WEB_IMAGE_SEARCH if the research has no suitable image. '
                     'Then analyze the local image before the deck.')
-        if self.needs_images and self.required_images > 1 and len(self.analyzed_image_paths) == 1:
+        if self.needs_images and 0 < len(self.analyzed_image_paths) < self.required_images:
+            remaining = self.required_images - len(self.analyzed_image_paths)
+            if self.downloaded_image_paths - self.analyzed_image_paths:
+                return f'Analyze the remaining selected local images; {remaining} more distinct image(s) are required.'
             if self.wants_generated_images:
-                return 'Generate and analyze a second distinct original image before creating the artifact.'
-            return ('One image has been analyzed. Download another distinct, relevant observed source image '
-                    'and analyze its local file before creating the complete deck.')
+                return f'Generate and analyze {remaining} more distinct original image(s) before creating the artifact.'
+            return (f'Obtain and analyze {remaining} more distinct relevant source image(s) '
+                    'before creating the complete deck.')
         if self.needs_images and not self.analyzed_image_paths and self.downloaded_image_paths:
             return 'Analyze a downloaded local image before making the complete deck.'
         if self.research_observed and (not self.needs_images or self.image_analysis_observed):

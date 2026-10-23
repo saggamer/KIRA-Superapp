@@ -1,6 +1,8 @@
 """Separate Kira slide specialist candidate, sharing the promoted v1.5 weights."""
 import re
 
+from orchestrator_v15.artifact_content import edited_image_issue, visible_content_issue
+
 from orchestrator_v15.presentation_controller import PresentationController, SLIDE, action_tag, clean_local_image_fields
 
 
@@ -64,14 +66,15 @@ class KiraPPTCandidate(PresentationController):
         tag, body = action_tag(answer)
         if tag != 'NATIVE_PPTX':
             return None
-        for field, value in re.findall(r'(?im)^\s*(TITLE|SUBTITLE|SLIDE|BODY|BULLET)\s*:\s*(.+)$', body):
-            if re.search(r'(?i)\b(?:image[- ]generation prompt|image prompt|prompt to (?:generate|create)|'
-                         r'(?:generate|create|render) (?:an? )?(?:image|photo|illustration)|'
-                         r'(?:image|photo) of [^\n]*\b(?:no text|aspect ratio|cinematic lighting))\b', value):
-                return f'{field.upper()} contains an image-making instruction. Put the real image path in IMAGE and write audience-facing slide content.'
+        issue = visible_content_issue(body)
+        if issue:
+            return issue
+        image_fields = [path.strip().strip('`') for path in re.findall(
+            r'(?im)^\s*(?:COVER_IMAGE|IMAGE)\s*:\s*([^\n]+)', body)]
+        issue = edited_image_issue(self, image_fields)
+        if issue:
+            return issue
         if self.needs_images:
-            image_fields = [path.strip().strip('`') for path in re.findall(
-                r'(?im)^\s*(?:COVER_IMAGE|IMAGE)\s*:\s*([^\n]+)', body)]
             if any(path not in self.analyzed_image_paths for path in image_fields):
                 return 'Analyze each selected local image with IMAGE_ANALYZE before embedding it.'
             slide_sections = re.split(r'(?im)^\s*SLIDE\s*:', body)[1:]

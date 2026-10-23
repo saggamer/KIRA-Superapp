@@ -36,6 +36,13 @@ def render_browser_result(value: object, *, max_chars: int = 16000) -> str:
     """Never cut a serialized result mid-JSON or silently lose its controls."""
     if not isinstance(value, dict):
         value = {"result": value}
+    # Keep history pagination aligned with the actual entries shown to the model.
+    # Generic list clipping would otherwise skip records at the next offset.
+    entries = value.get("entries")
+    if isinstance(entries, list) and len(entries) > 10 and all(
+            isinstance(entry, dict) and "historyId" in entry for entry in entries):
+        value = {**value, "entries": entries[:10], "nextOffset": value.get("offset", 0) + 10,
+                 "omittedEntries": len(entries) - 10}
     for text_limit, element_limit in ((5500, 80), (3500, 60), (1800, 40), (800, 20)):
         projected = _compact(value, text_limit=text_limit, element_limit=element_limit)
         encoded = json.dumps(projected, ensure_ascii=False, separators=(",", ":"))
@@ -43,6 +50,7 @@ def render_browser_result(value: object, *, max_chars: int = 16000) -> str:
             return encoded
     fallback = {key: value[key] for key in (
         "tabId", "url", "title", "status", "path", "screenshot", "observationId",
+        "historyId", "nextOffset", "nextTextOffset", "nextResultOffset",
     ) if key in value}
     fallback["resultTruncated"] = True
     fallback["message"] = "Browser result exceeded the model budget. Inspect this page in smaller steps."

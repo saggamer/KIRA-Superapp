@@ -15,8 +15,11 @@ fi
 PYTHON=""
 for candidate in python3.12 python3.11 python3; do
   if command -v "$candidate" >/dev/null 2>&1; then
-    PYTHON="$(command -v "$candidate")"
-    break
+    version="$("$candidate" -c 'import sys; print("%s.%s" % sys.version_info[:2])')"
+    if [[ "$version" == "3.11" || "$version" == "3.12" ]]; then
+      PYTHON="$(command -v "$candidate")"
+      break
+    fi
   fi
 done
 if [[ -z "$PYTHON" ]]; then

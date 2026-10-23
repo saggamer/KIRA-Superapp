@@ -120,7 +120,7 @@
     surface.addEventListener('pointermove',event=>{
       if(paused||reduceMotion.matches||event.pointerType==='touch')return;
       const rect=surface.getBoundingClientRect(),x=(event.clientX-rect.left)/rect.width,y=(event.clientY-rect.top)/rect.height;
-      surface.style.setProperty('--tilt-x',`${(.5-y)*4}deg`);surface.style.setProperty('--tilt-y',`${(x-.5)*4}deg`);
+      surface.style.setProperty('--tilt-x',`${(.5-y)*4}deg`);surface.style.setProperty('--tilt-y',`${(x-.5)*4}deg`);surface.style.setProperty('--spot-x',`${x*100}%`);surface.style.setProperty('--spot-y',`${y*100}%`);
     });
     surface.addEventListener('pointerleave',()=>{surface.style.setProperty('--tilt-x','0deg');surface.style.setProperty('--tilt-y','0deg');});
   });
@@ -271,7 +271,7 @@
     const entering=Math.min(1,phase*3),heroFade=Math.min(1,scrollY/innerHeight),collapse=1-phase*phase;
     const sceneSize=(mobile?.22:.29)*(phase>0?collapse:1-heroFade*.2);
     const centerX=(mobile?.54:.80)*(1-entering)+.5*entering+px*.012;
-    const centerY=(mobile?.74:.53)*(1-entering)+.76*entering-py*.009;
+    const centerY=(mobile?.74:.53)*(1-entering)+.76*entering-py*.018+(motionAllowed&&phase===0?heroFade*(mobile?.08:.14):0);
     const visibility=phase>0?Math.min(1,collapse*3):1-heroFade*.65;
     root.style.setProperty('--art-width',`${sceneSize*innerHeight*(mobile?3:4.3)}px`);
     root.style.setProperty('--art-x',`${centerX*100}%`);root.style.setProperty('--art-y',`${(1-centerY)*100}%`);

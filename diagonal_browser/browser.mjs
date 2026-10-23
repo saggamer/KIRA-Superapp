@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { extractPage, inspectUrl } from './page_inspection.mjs';
 import { loadEmailProfiles, emailProfileByNickname, defaultProfileDir } from './email_profiles.mjs';
+import { SearchHistory } from './search_history.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(process.env.DIAGONAL_ARTIFACTS_DIR || path.join(here, 'artifacts'));
@@ -47,7 +48,29 @@ function run(command, args, timeoutMs = 20000) {
 }
 
 export class DiagonalBrowser {
-  constructor({ profileDir = defaultProfileDir, persistAuth = false, loginHeadless = false } = {}) { this.browser = null; this.context = null; this.pages = new Map(); this.lastObservations = new Map(); this.active = null; this.recording = null; this.profileDir = profileDir; this.persistAuth = persistAuth; this.loginHeadless = loginHeadless; this.loginBrowser = null; this.loginContext = null; this.loginSourceId = null; this.authSaveTimer = null; this.authSaving = Promise.resolve(); }
+  constructor({ profileDir = defaultProfileDir, persistAuth = false, loginHeadless = false, historyEnabled = true } = {}) { this.browser = null; this.context = null; this.pages = new Map(); this.lastObservations = new Map(); this.active = null; this.recording = null; this.profileDir = profileDir; this.persistAuth = persistAuth; this.loginHeadless = loginHeadless; this.loginBrowser = null; this.loginContext = null; this.loginSourceId = null; this.authSaveTimer = null; this.authSaving = Promise.resolve(); this.history = new SearchHistory(profileDir); this.historyEnabled = historyEnabled; this.historyPages = new WeakMap(); }
+
+  async _rememberPage(page, value) {
+    if (!this.historyEnabled || page.context() === this.loginContext || !/^https?:\/\//i.test(value.url)) return {};
+    const previous = this.historyPages.get(page);
+    const entry = { ...(previous?.url === value.url ? previous : {}), ...value, kind: 'page', source: 'llm' };
+    entry.id ||= randomUUID(); entry.createdAt ||= new Date().toISOString();
+    this.historyPages.set(page, entry);
+    try { await this.history.save(entry); return { historyId: entry.id }; }
+    catch (error) { return { historyError: `Page history could not be saved: ${error.message}` }; }
+  }
+
+  searchHistory(options) { return this.history.search(options); }
+  readHistory(historyId, options) { return this.history.read(historyId, options); }
+
+  async revisitHistory(historyId, resultIndex, tabId) {
+    const entry = await this.history.get(historyId);
+    if (entry.kind === 'search' && resultIndex === undefined) return this.history.read(historyId);
+    if (entry.kind === 'search' && (!Number.isInteger(resultIndex) || resultIndex < 0 || !entry.results[resultIndex])) throw new Error('Choose a resultIndex returned by read_history');
+    const url = entry.kind === 'search' ? entry.results[resultIndex].url : entry.url;
+    if (!url) throw new Error('This history entry has no usable website URL');
+    return { ...(await this.navigate(url, tabId)), revisitedHistoryId: historyId };
+  }
 
   async ensure() {
     if (this.browser) return;
@@ -89,6 +112,7 @@ export class DiagonalBrowser {
     const id = randomUUID().slice(0, 8);
     this.pages.set(id, page);
     this.active = id;
+    page.on('framenavigated', frame => { if (frame === page.mainFrame()) this.historyPages.delete(page); });
     page.on('load', () => { if (page.context() === this.context) this._queueAuthSave(); });
     page.on('close', () => { this.pages.delete(id); this.lastObservations.delete(id); if (this.active === id) this.active = this.pages.keys().next().value || null; });
     return id;
@@ -108,7 +132,10 @@ export class DiagonalBrowser {
     const output = await run(ddgs, [query, '--max-results', String(Math.max(1, Math.min(limit, 10))), '--format', 'json']);
     const results = JSON.parse(output);
     if (!Array.isArray(results) || results.some(item => item.error)) throw new Error(results?.[0]?.error || 'DDG returned invalid results');
-    return { query, results };
+    try {
+      const entry = this.historyEnabled ? await this.history.save({ kind: 'search', source: 'llm', query, results }) : null;
+      return { query, results, ...(entry ? { historyId: entry.id } : {}) };
+    } catch (error) { return { query, results, historyError: `Search history could not be saved: ${error.message}` }; }
   }
 
   async navigate(url, tabId) {
@@ -184,7 +211,9 @@ export class DiagonalBrowser {
       index, tag: node.tagName.toLowerCase(), role: node.getAttribute('role'), text: (node.innerText || node.getAttribute('aria-label') || node.getAttribute('placeholder') || '').trim().slice(0, 120),
       href: node instanceof HTMLAnchorElement ? node.href : null
     })));
-    return { tabId: id, url: page.url(), title: await page.title(), text: (await page.locator('body').innerText()).slice(0, 25000), elements: items };
+    const bodyText = await page.locator('body').innerText();
+    const result = { tabId: id, url: page.url(), title: await page.title(), text: bodyText.slice(0, 25000), elements: items };
+    return { ...result, ...(await this._rememberPage(page, { ...result, text: bodyText.slice(0, 25001) })) };
   }
 
   async observe(tabId, screenshot = false) {
@@ -219,9 +248,10 @@ export class DiagonalBrowser {
         })(),
       };
     }).filter(Boolean).slice(0, 80), viewport);
+    const bodyText = await page.locator('body').innerText().catch(() => '');
     const result = {
       tabId: id, url: page.url(), title: await page.title(), viewport, grid: { columns: 12, rows: 8 },
-      text: (await page.locator('body').innerText().catch(() => '')).slice(0, 9000),
+      text: bodyText.slice(0, 9000),
       elements,
     };
     const viewportEvidence = await page.evaluate(() => {
@@ -278,6 +308,7 @@ export class DiagonalBrowser {
       try { result.screenshot = (await this.screenshot(id, undefined, false)).path; }
       finally { await page.evaluate(() => document.getElementById('__diagonal_visual_map__')?.remove()).catch(() => {}); }
     }
+    Object.assign(result, await this._rememberPage(page, { ...result, text: bodyText.slice(0, 25001) }));
     return result;
   }
 
@@ -390,7 +421,9 @@ export class DiagonalBrowser {
 
   async inspect(tabId) {
     const [id, page] = await this.page(tabId);
-    return { tabId: id, urlInfo: inspectUrl(page.url()), page: await page.evaluate(extractPage) };
+    const result = { tabId: id, urlInfo: inspectUrl(page.url()), page: await page.evaluate(extractPage) };
+    const text = (await page.locator('body').innerText().catch(() => '')).slice(0, 25001);
+    return { ...result, ...(await this._rememberPage(page, { url: page.url(), title: result.page.title, text })) };
   }
 
   _target(page, selector, index, text, role, targetName) {

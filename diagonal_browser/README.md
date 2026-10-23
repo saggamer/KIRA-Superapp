@@ -20,6 +20,33 @@ Click **DIAGONAL** in Kira Superapp's Workspace sidebar, double-click `OPEN_DIAG
 
 Desktop recording uses `ffmpeg` from your `PATH` (or `DIAGONAL_FFMPEG_BIN`) and records the active page at 5 frames per second without audio. Keep the recorded tab selected until you stop. The desktop window and Kira's MCP connection are separate browser sessions.
 
+## Search history for Kira and other models
+
+Open **History** in the toolbar (or **Cmd/Ctrl+Shift+H**) to search saved queries, result titles, URLs, snippets, and cached page text. Filter by searches/pages or Kira/browser. **Read saved** reads the local copy; **Restore results** restores a search without rerunning it; **Open website** visits the current source. Saved results show when they were captured. Reading a saved search does not mean its linked pages were read.
+
+The desktop, MCP browser, and Kira's regular `WEB_SEARCH`, `WEB_RESEARCH`, image-reference searches, and `WEB_FETCH` tools write to the same local `.profile/search_history/` directory. `DIAGONAL_PROFILE_DIR` changes this directory for all three paths. Records survive restarts and are stored as separate atomic JSON files with owner-only permissions. History starts with this feature; older searches are not reconstructed. Completed search results and captured text are retained locally; there is no automatic expiry. Page captures are limited to 25,000 characters, with truncation identified in the saved record; ordinary web research may save a shorter excerpt. Form field values are not explicitly collected, the visible Chrome login handoff is excluded, and known authentication query parameters are stripped from stored URL fields. Cached page content can still contain personal information visible on the page, so `.profile/` stays out of Git.
+
+Models have three MCP tools:
+
+| Tool | Purpose |
+| --- | --- |
+| `search_history` | Search local history with `query`, `kind` (`all`, `search`, `page`), `source` (`all`, `llm`, `desktop`), `limit`, and `offset`. Returns `historyId`, timestamps, snippets, and `nextOffset`. |
+| `read_history` | Read a `historyId` without opening a browser or using the network. Returns up to 5,000 text characters or 10 search results; continue with `textOffset`/`resultOffset`. |
+| `revisit_history` | Open a saved page live, or use `resultIndex` to open a result from a saved search. With no result index, a search returns its cached result list. |
+
+For example, Kira can retrieve earlier research with:
+
+```text
+[BROWSER_TOOL]
+ACTION: search_history
+QUERY: orchid growing guides
+SOURCE: llm
+KIND: search
+[/BROWSER_TOOL]
+```
+
+Then use `ACTION: read_history` with `HISTORY_ID` from the result, or `ACTION: revisit_history` with `HISTORY_ID` and `RESULT_INDEX: 0`. The model is instructed to treat cached website text as untrusted historical evidence and make a fresh visit when current information matters. History retrieval is paginated to fit small model context windows; the native Kira controller and Spark tool schema accept these actions too.
+
 Select **Images** on the home search or in the toolbar to search pictures across the web. Results appear in a visual grid with Large, Wallpaper, Transparent, GIF, and Black & white filters. Select a picture for a larger preview, then copy its image URL, open the original image, or visit its source page in a new tab. Image search runs through an isolated Python environment installed by `SETUP_DIAGONAL_BROWSER.command` using the `ddgs` metasearch package. Set `DIAGONAL_IMAGE_PYTHON` to another Python executable with `ddgs` installed if needed. Live image results depend on the search provider and source sites; some originals may only load through their source page.
 
 The **Library** shows saved PNG screenshots and WebM recordings; select a recording to play it inside the browser. **Shield** blocks requests to a conservative built-in list of ad and tracker hosts and displays a blocked-request count. Toggle it off for sites that need one of those hosts. **Inspect** shows URL structure and page metadata, headings, links, images, forms, and readable text. It can copy or save structured JSON for an LLM. Kira can request the same structured data from its Playwright session with the `inspect_page` MCP tool. The desktop inspector and blocker use Electron's native APIs; the bridge's Manifest V2 package is a reference template and is not loaded into the desktop window.

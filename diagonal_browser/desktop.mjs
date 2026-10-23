@@ -10,6 +10,7 @@ import { artifactPath } from './browser.mjs';
 import { blockedHost } from './blocking.mjs';
 import { extractPage, inspectUrl } from './page_inspection.mjs';
 import { loadEmailProfiles, saveEmailProfiles, emailProfileByNickname } from './email_profiles.mjs';
+import { SearchHistory } from './search_history.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const localDdgs = path.join(os.homedir(), 'Downloads/chatgpt_antigravity_bridge/bin/ddgs');
@@ -20,7 +21,8 @@ const toolbarHeight = 136;
 const artifactsDir = path.dirname(artifactPath('gallery.png', 'png'));
 const profileDir = process.env.DIAGONAL_DESKTOP_SMOKE === '1'
   ? path.join(app.getPath('temp'), `diagonal-browser-smoke-${process.pid}`)
-  : path.join(here, '.profile');
+  : process.env.DIAGONAL_PROFILE_DIR || path.join(here, '.profile');
+const searchHistory = new SearchHistory(profileDir);
 mkdirSync(profileDir, { recursive: true });
 mkdirSync(path.join(profileDir, 'session'), { recursive: true });
 let window;
@@ -102,6 +104,33 @@ function newTab(url) {
   if (url) navigate(url, tab.id);
   return tab.id;
 }
+
+async function rememberDesktopPage(tab, view) {
+  if (tab.view !== view || view.webContents.isDestroyed()) return;
+  try {
+    const page = await view.webContents.executeJavaScript('({ url: location.href, title: document.title, text: (document.body?.innerText || "").slice(0, 25001) })');
+    if (!/^https?:\/\//i.test(page.url) || tab.view !== view || tab.url !== page.url) return;
+    if (!tab.historyVisit || tab.historyVisit.url !== page.url) tab.historyVisit = { id: randomUUID(), createdAt: new Date().toISOString(), url: page.url };
+    await searchHistory.save({ ...tab.historyVisit, ...page, kind: 'page', source: 'desktop' });
+  } catch (error) { console.error('Could not save page history:', error.message); }
+}
+
+async function revisitHistory(value) {
+  const entry = await searchHistory.get(value?.historyId);
+  if (entry.kind === 'page') return navigate(entry.url);
+  if (value.resultIndex !== undefined) {
+    if (!Number.isInteger(value.resultIndex) || value.resultIndex < 0 || !entry.results[value.resultIndex]?.url) throw new Error('Unknown saved result');
+    return navigate(entry.results[value.resultIndex].url);
+  }
+  const tab = current();
+  if (!tab) throw new Error('Tab not found');
+  if (recording) throw new Error('Stop recording before restoring a saved search');
+  if (tab.view) { window.contentView.removeChildView(tab.view); tab.view.webContents.close(); tab.view = null; }
+  tab.url = ''; tab.title = `Saved search: ${entry.query}`;
+  tab.searchResults = { query: entry.query, results: entry.results, mode: entry.mode, savedAt: entry.createdAt, historyId: entry.id };
+  panel = null; showActive();
+}
+
 function attachView(tab) {
   if (tab.view) return tab.view;
   const view = new WebContentsView({ webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
@@ -130,9 +159,9 @@ function attachView(tab) {
     if (!/^https?:\/\//i.test(event.url)) event.preventDefault();
   });
   view.webContents.on('did-start-loading', () => { tab.loading = true; publish(); });
-  view.webContents.on('did-stop-loading', () => { tab.loading = false; publish(); });
-  view.webContents.on('did-navigate', (_event, url) => { tab.url = url; publish(); });
-  view.webContents.on('did-navigate-in-page', (_event, url) => { tab.url = url; publish(); });
+  view.webContents.on('did-stop-loading', () => { tab.loading = false; publish(); void rememberDesktopPage(tab, view); });
+  view.webContents.on('did-navigate', (_event, url) => { tab.url = url; tab.historyVisit = null; publish(); });
+  view.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame) { tab.url = url; tab.historyVisit = null; publish(); void rememberDesktopPage(tab, view); } });
   view.webContents.on('page-title-updated', (_event, title) => { tab.title = title || tab.url; publish(); });
   view.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
     if (isMainFrame && code !== -3) { tab.loading = false; tab.title = `Could not load ${url || tab.url}`; tab.error = description; publish(); }
@@ -189,11 +218,14 @@ async function search(query, id = activeId, mode = 'web', filters = {}) {
     : [cleanQuery, '--max-results', '8', '--format', 'json'];
   const results = await runSearchCommand(mode === 'images' ? imagePython : ddgs, args, mode === 'images' ? 30000 : 20000);
   if (!Array.isArray(results)) throw new Error('Search returned invalid results');
+  let historyId;
+  try { historyId = (await searchHistory.save({ kind: 'search', source: 'desktop', query: cleanQuery, mode, results })).id; }
+  catch (error) { console.error('Could not save search history:', error.message); }
   panel = null;
   if (tab.view) { window.contentView.removeChildView(tab.view); tab.view.webContents.close(); tab.view = null; }
   tab.url = '';
   tab.title = `${mode === 'images' ? 'Images' : 'Search'}: ${cleanQuery}`;
-  tab.searchResults = { query: cleanQuery, results, mode, filters: safeFilters };
+  tab.searchResults = { query: cleanQuery, results, mode, filters: safeFilters, historyId };
   if (id === activeId) showActive();
   publish();
 }
@@ -284,7 +316,7 @@ async function listMedia() {
 }
 
 async function openPanel(name) {
-  if (!['media', 'inspect', 'accounts'].includes(name)) throw new Error('Unknown panel');
+  if (!['media', 'inspect', 'accounts', 'history'].includes(name)) throw new Error('Unknown panel');
   if (recording) throw new Error('Stop recording before opening a panel');
   if (name === 'inspect') {
     const tab = current();
@@ -452,6 +484,9 @@ ipcMain.handle('diagonal:action', async (event, action, value) => {
     case 'openPanel': return openPanel(value);
     case 'closePanel': return closePanel();
     case 'listMedia': return listMedia();
+    case 'searchHistory': return searchHistory.search(value || {});
+    case 'readHistory': return searchHistory.read(value?.historyId, value || {});
+    case 'revisitHistory': return revisitHistory(value);
     case 'setAdBlock': return setAdBlock(value);
     case 'saveEmailProfiles': emailProfiles = await saveEmailProfiles(value, profileDir); publish(); return emailProfiles;
     case 'useEmailProfile': return fillEmailProfile(value);

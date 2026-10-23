@@ -12,10 +12,19 @@ BROWSER_TOOL_SCHEMA = {
             'properties': {
                 'action': {'type': 'string', 'enum': [
                     'navigate', 'observe', 'act', 'list_tabs', 'select_tab',
-                    'back', 'inspect_page', 'search', 'scroll']},
+                    'back', 'inspect_page', 'search', 'scroll',
+                    'search_history', 'read_history', 'revisit_history']},
                 'url': {'type': 'string'},
                 'tabid': {'type': 'string'},
                 'query': {'type': 'string'},
+                'history_id': {'type': 'string'},
+                'kind': {'type': 'string', 'enum': ['all', 'search', 'page']},
+                'source': {'type': 'string', 'enum': ['all', 'llm', 'desktop']},
+                'limit': {'type': 'integer', 'minimum': 1, 'maximum': 50},
+                'offset': {'type': 'integer', 'minimum': 0},
+                'text_offset': {'type': 'integer', 'minimum': 0},
+                'result_offset': {'type': 'integer', 'minimum': 0},
+                'result_index': {'type': 'integer', 'minimum': 0},
                 'operation': {'type': 'string', 'enum': ['click', 'fill', 'select_option', 'scroll']},
                 'pixels': {'type': 'integer'},
                 'target_role': {'type': 'string'},
@@ -61,6 +70,15 @@ def native_browser_call_to_block(text):
         return None
     if action == 'select_tab' and not args.get('tabid'):
         return None
+    if action in {'read_history', 'revisit_history'} and not args.get('history_id'):
+        return None
+    for key in ('offset', 'text_offset', 'result_offset', 'result_index'):
+        if key in args:
+            try:
+                if int(args[key]) < 0:
+                    return None
+            except ValueError:
+                return None
     if action == 'scroll' or args.get('operation', '').lower() == 'scroll':
         try:
             pixels = int(args.get('pixels', '600'))

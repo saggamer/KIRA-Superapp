@@ -16,6 +16,8 @@ APP_CONTROL = re.compile(
 BROWSER = re.compile(
     r"\b(?:diagonal browser|browser|web ?page|tab|tabs|screenshot|"
     r"web search|search (?:the )?web|search online|look up online|"
+    r"search history|browsing history|previous searches|past searches|earlier searches|"
+    r"previously searched|searched (?:for )?(?:before|earlier|yesterday)|saved searches|"
     r"surf (?:the )?(?:web|youtube)|browse (?:the )?(?:web|youtube)|"
     r"search (?:on |through )?youtube|youtube (?:video|search)|"
     r"fresh observation|button|textbox|combobox|click|fill|select option)\b", re.I)
@@ -23,6 +25,11 @@ DESKTOP_BROWSER_OPEN = re.compile(
     r"\b(?:open|launch|start)\b.{0,35}\b(?:a|an|any|my|the)?\s*(?:web\s+)?browser\b|"
     r"\b(?:open|launch|start)\s+(?:safari|chrome|firefox|edge)\b", re.I)
 MCP_CONTROL = re.compile(r"\b(?:mcp|connectors?|configuration targets?)\b", re.I)
+BROWSER_HISTORY = re.compile(
+    r"\b(?:search|browsing|browser) history\b|"
+    r"\b(?:previous|past|earlier|saved) (?:searches|research|pages)\b|"
+    r"\bpreviously searched\b|\bsearched\b.{0,40}\b(?:before|earlier|yesterday|recently)\b|"
+    r"\bwhat (?:did|have|has|had) (?:you|we|kira) (?:search(?:ed)?|read|visit(?:ed)?)\b", re.I)
 
 
 def manifest_root(manifest_path, manifest, runtime_root):
@@ -37,12 +44,16 @@ def channel_for_request(request):
     if re.search(r'\b(?:create|make|build|draft|generate|prepare|need|want|produce)\b.{0,100}'
                  r'\b(?:pptx?|powerpoint|presentation|slide deck|slides?)\b', request, re.I):
         return 'control'
+    if re.search(r'(?<!\w)\$browser-(?:research|interaction|history)\b', request):
+        return 'browser'
     if (DESKTOP_BROWSER_OPEN.search(request) and not re.search(
             r'https?://|\b(?:diagonal browser|search|navigate|web page|screenshot|click|fill|select option)\b',
             request, re.I)):
         return 'control'
     if re.match(r'^\s*(?:use|open|navigate|browse)\b.{0,35}\b(?:diagonal browser|browser)\b',
                 request, re.I):
+        return 'browser'
+    if BROWSER_HISTORY.search(request):
         return 'browser'
     if APP_CONTROL.search(request):
         return 'control'

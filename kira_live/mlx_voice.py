@@ -11,6 +11,8 @@ embedding input.
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
+import tempfile
 import threading
 from typing import Iterator, Sequence
 
@@ -23,6 +25,37 @@ from .response_prosody import response_style
 
 TALKER_MODEL_ID = "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16"
 TALKER_SPEAKER = "Aiden"
+
+
+def local_model_view(model_id):
+    """Hide macOS AppleDouble sidecars from third-party weight globbing.
+
+    External disks can contain ._model.safetensors metadata. The audio loader
+    treats these as tensors. A temporary symlink view preserves all originals
+    and avoids copying large weights or modifying the installed dependency.
+    """
+    source = Path(model_id).expanduser()
+    if not source.is_dir():
+        return model_id, None
+    entries = list(source.rglob('*'))
+    if not any(entry.name.startswith('._') for entry in entries):
+        return model_id, None
+    view = tempfile.TemporaryDirectory(prefix='kira-talker-')
+    try:
+        for entry in entries:
+            relative = entry.relative_to(source)
+            if any(part.startswith('._') for part in relative.parts):
+                continue
+            target = Path(view.name) / relative
+            if entry.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            elif entry.is_file():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.symlink_to(entry.resolve())
+    except Exception:
+        view.cleanup()
+        raise
+    return view.name, view
 
 
 def optimize_talker(model, bits: int) -> dict:
@@ -96,10 +129,13 @@ class KiraIntegratedQwenVoice:
         load_kwargs = {"lazy": True}
         if revision:
             load_kwargs["revision"] = revision
+        load_path, self._model_view = local_model_view(model_id)
         try:
-            self.model = load_model(model_id, local_files_only=True, **load_kwargs)
+            self.model = load_model(load_path, local_files_only=True, **load_kwargs)
         except TypeError:
-            self.model = load_model(model_id, **load_kwargs)
+            self.model = load_model(load_path, **load_kwargs)
+        if getattr(self.model, 'speech_tokenizer', None) is None:
+            raise RuntimeError('KIRA speech tokenizer failed to load; check the Talker checkpoint files.')
         self.model.eval()
         speakers = {str(item).lower() for item in self.model.get_supported_speakers()}
         if speaker.lower() not in speakers:

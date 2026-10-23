@@ -27,7 +27,7 @@ chmod +x INSTALL_MACOS.command DOWNLOAD_MODELS.command superapp
 ./INSTALL_MACOS.command
 ```
 
-The installer creates `.venv`, installs dependencies, downloads Orchestrator V1
+The installer creates `~/.local/share/kira-superapp/runtime`, installs dependencies, downloads Orchestrator V1
 into `models/orchestrator_v1_fused`, downloads the Apple-optimized Whisper model,
 and verifies model discovery.
 
@@ -70,7 +70,7 @@ The defaults are:
 - `mlx-community/whisper-small.en-mlx`
 
 Override them with `KIRA_ORCHESTRATOR_REPO` or `KIRA_WHISPER_REPO`. If Hugging
-Face requires authentication or license acceptance, run `.venv/bin/hf auth login`
+Face requires authentication or license acceptance, run `~/.local/share/kira-superapp/runtime/bin/hf auth login`
 and retry.
 
 ## Existing Orchestrator Model
@@ -111,12 +111,23 @@ Never commit `.env` files or exported credentials.
 
 ## Development
 
+Orchestrator v1.5 includes automatic browser research, page interaction, saved
+history and MCP workflow skills. See [Orchestrator skills](docs/ORCHESTRATOR_V15_SKILLS.md)
+for explicit invocation, loading limits, audit metadata and the skills-off comparison.
+
 For interactive web research, screenshots, and browser recordings, see [Diagonal Browser](diagonal_browser/README.md). It adds a persistent Playwright MCP service and a Kira `[BROWSER_TOOL]` action backed by the Antigravity bridge's DDG search utility.
 
 Run the focused regression suite:
 
 ```bash
-.venv/bin/python -m unittest -q \
+~/.local/share/kira-superapp/runtime/bin/python -m unittest discover -s tests -q
+```
+
+All launchers honor `KIRA_PYTHON` and otherwise share the installed runtime,
+with `.venv` and `.venv-kira-live` as local fallbacks. Run a focused subset with:
+
+```bash
+~/.local/share/kira-superapp/runtime/bin/python -m unittest -q \
   tests.test_stabilization \
   tests.test_model_storage_selection \
   tests.test_orchestrator_runtime_stability

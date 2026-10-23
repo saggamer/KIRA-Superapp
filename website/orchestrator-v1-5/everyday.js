@@ -50,11 +50,4 @@
     try {await navigator.clipboard.writeText(text);if(request===copyRequest)setText('copy-status','Example copied. Paste it into KIRA and add your own context.');}
     catch (_) {if(request===copyRequest)setText('copy-status','Select and copy the example above, then paste it into KIRA.');}
   });
-  const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
-  const art=document.querySelector('.model-art');
-  art.addEventListener('pointermove',event=>{
-    if(reduceMotion.matches||event.pointerType==='touch')return;
-    const rect=art.getBoundingClientRect();art.style.setProperty('--drift-x',`${((event.clientX-rect.left)/rect.width-.5)*12}px`);art.style.setProperty('--drift-y',`${((event.clientY-rect.top)/rect.height-.5)*12}px`);
-  });
-  art.addEventListener('pointerleave',()=>{art.style.setProperty('--drift-x','0px');art.style.setProperty('--drift-y','0px');});
 })();

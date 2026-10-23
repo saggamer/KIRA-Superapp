@@ -9,6 +9,17 @@ import uuid
 MODEL_DIR = Path('/Volumes/Extreme SSD/KIRA_SUPERAPP_MODELS_2026-10-10/z_image_turbo_4bit')
 
 
+def _load_raster(path):
+    """Decode before allocating diffusion state; reject broken or oversized inputs."""
+    from PIL import Image, ImageOps
+
+    with Image.open(path) as image:
+        if image.width * image.height > 25_000_000:
+            raise ValueError('image exceeds 25 megapixels')
+        image.load()
+        return ImageOps.exif_transpose(image).copy()
+
+
 def generate_image(prompt, workspace, app_root, *, seed=42, timeout=600):
     return _run_image_model(prompt, workspace, app_root, seed=seed, timeout=timeout)
 
@@ -20,6 +31,7 @@ def edit_image(prompt, source, workspace, app_root, *, strength=0.4, mask=None, 
         raise ValueError('PATH must name a local PNG, JPEG, or WebP image')
     if source.stat().st_size > 20 * 1024 * 1024:
         raise ValueError('source image exceeds 20 MiB')
+    original = _load_raster(source)
     if mask:
         mask = Path(mask).expanduser().resolve()
         if not mask.is_file() or mask.suffix.lower() not in {'.png', '.jpg', '.jpeg', '.webp'}:
@@ -30,11 +42,28 @@ def edit_image(prompt, source, workspace, app_root, *, strength=0.4, mask=None, 
         raise ValueError('Use either MASK or REGION, not both')
     if region:
         mask = _region_mask(source, workspace, str(region).lower().strip())
+    if mask:
+        selection = _load_raster(mask).convert('L')
+        if selection.size != original.size:
+            raise ValueError('MASK dimensions must match the source image')
+        if selection.getbbox() is None:
+            raise ValueError('MASK must select at least one pixel (white means edit)')
     strength = float(strength)
     if not 0.1 <= strength <= 0.85:
         raise ValueError('STRENGTH must be between 0.1 and 0.85')
-    return _run_image_model(prompt, workspace, app_root, seed=seed, timeout=timeout,
-                            source=source, strength=strength, mask=mask)
+    output = _run_image_model(prompt, workspace, app_root, seed=seed, timeout=timeout,
+                              source=source, strength=strength, mask=mask)
+    # Diffusion can change unselected pixels and resize the canvas. Restore the
+    # exact source geometry and composite only the selected region locally.
+    from PIL import Image
+    edited = _load_raster(output).convert('RGB').resize(original.size, Image.Resampling.LANCZOS)
+    if mask:
+        edited = Image.composite(edited, original.convert('RGB'), selection)
+    if 'A' in original.getbands() or 'transparency' in original.info:
+        edited = edited.convert('RGBA')
+        edited.putalpha(original.convert('RGBA').getchannel('A'))
+    edited.save(output)
+    return output
 
 
 def _region_mask(source, workspace, region):
@@ -52,8 +81,7 @@ def _region_mask(source, workspace, region):
     }
     if region not in boxes:
         raise ValueError('REGION must be left, right, center, upper_left, upper_right, lower_left, or lower_right')
-    with Image.open(source) as image:
-        width, height = image.size
+    width, height = _load_raster(source).size
     area = boxes[region]
     output_dir = Path(workspace) / 'generated_images'
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -84,9 +112,15 @@ def _run_image_model(prompt, workspace, app_root, *, seed, timeout, source=None,
     output_dir.mkdir(parents=True, exist_ok=True)
     prefix = 'z_image_edit' if source else 'z_image_turbo'
     output = output_dir / f'{prefix}_{uuid.uuid4().hex[:12]}.png'
+    width, height = 1024, 768
+    if source:
+        source_width, source_height = _load_raster(source).size
+        scale = min(1, 1024 / max(source_width, source_height))
+        width, height = (max(64, round(size * scale / 16) * 16)
+                         for size in (source_width, source_height))
     command = [str(executable), 'generate', '--model', str(model_dir),
                '--base-model', 'z-image-turbo', '--prompt', prompt,
-               '--width', '1024', '--height', '768', '--steps', '8', '--guidance', '0',
+               '--width', str(width), '--height', str(height), '--steps', '8', '--guidance', '0',
                '--seed', str(seed), '--output', str(output)]
     if source:
         command.extend(['--image', str(source)])
@@ -97,9 +131,35 @@ def _run_image_model(prompt, workspace, app_root, *, seed, timeout, source=None,
     env = os.environ.copy()
     env['HF_HUB_OFFLINE'] = '1'
     env['TRANSFORMERS_OFFLINE'] = '1'
-    run = subprocess.run(command, capture_output=True, text=True, timeout=timeout, env=env)
+    # Diffusion backends do not all honor EXIF orientation. Pass normalized
+    # copies only when needed so the source, selection and working canvas agree.
+    normalized_inputs = []
+    from PIL import Image
+    try:
+        for flag in ('--image', '--mask-path'):
+            if flag not in command:
+                continue
+            index = command.index(flag) + 1
+            with Image.open(command[index]) as incoming:
+                oriented = incoming.getexif().get(274, 1) != 1
+            if oriented:
+                normalized = output_dir / f'input_{uuid.uuid4().hex[:12]}.png'
+                _load_raster(command[index]).save(normalized)
+                normalized_inputs.append(normalized)
+                command[index] = str(normalized)
+        run = subprocess.run(command, capture_output=True, text=True, timeout=timeout, env=env)
+    finally:
+        for normalized in normalized_inputs:
+            normalized.unlink(missing_ok=True)
     if run.returncode:
         raise RuntimeError((run.stderr or run.stdout).strip()[-1600:])
-    if not output.is_file() or output.stat().st_size < 1024:
+    if not output.is_file():
         raise RuntimeError('MLX-Gen returned without a usable PNG')
+    try:
+        picture = _load_raster(output)
+        if min(picture.size) < 64:
+            raise ValueError('output is smaller than 64 pixels')
+    except (OSError, ValueError) as error:
+        output.unlink(missing_ok=True)
+        raise RuntimeError('MLX-Gen returned an invalid image') from error
     return output

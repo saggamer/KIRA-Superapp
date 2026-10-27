@@ -6854,6 +6854,11 @@ if __name__ == "__main__":
             logs.append(f"WEB_IMAGE_DOWNLOAD:\nSource: `{target}`\nPath: `{path}`" if path else f"WEB_IMAGE_DOWNLOAD ERROR: {error}")
 
         browser_args = {
+            "adblock_status": {"url": "url"},
+            "adblock_set": {"enabled": "enabled", "site": "site", "site_enabled": "siteEnabled", "cosmetic": "cosmetic", "auto_update": "autoUpdate"},
+            "adblock_rule": {"operation": "operation", "rule": "rule"},
+            "adblock_check": {"url": "url", "page_url": "pageUrl", "resource_type": "resourceType"},
+            "adblock_update": {},
             "search": {"query": "query", "limit": "limit"},
             "search_history": {"query": "query", "kind": "kind", "source": "source", "offset": "offset", "limit": "limit"},
             "read_history": {"history_id": "historyId", "text_offset": "textOffset", "result_offset": "resultOffset"},
@@ -6914,6 +6919,17 @@ if __name__ == "__main__":
                 arguments["screenshot"] = arguments["screenshot"].lower() not in {"0", "false", "no"}
             if "save" in arguments:
                 arguments["save"] = arguments["save"].lower() not in {"0", "false", "no"}
+            invalid_adblock_boolean = False
+            for field in ("enabled", "siteEnabled", "cosmetic", "autoUpdate"):
+                if field in arguments:
+                    value = arguments[field].lower()
+                    if value not in {"true", "false", "yes", "no", "1", "0"}:
+                        logs.append(f"BROWSER_TOOL ERROR: {field} must be true or false.")
+                        invalid_adblock_boolean = True
+                        break
+                    arguments[field] = value in {"true", "yes", "1"}
+            if invalid_adblock_boolean:
+                continue
             if "pixels" in arguments:
                 try:
                     arguments["pixels"] = int(arguments["pixels"])

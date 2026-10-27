@@ -9,9 +9,12 @@
     "desktop": "electron desktop.mjs",
     "mcp-config": "node print_mcp_config.mjs",
     "setup": "playwright install ffmpeg",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:desktop": "node test/desktop_ui_smoke.mjs"
   },
   "dependencies": {
+    "@ghostery/adblocker": "2.20.1",
+    "@ghostery/adblocker-electron": "2.20.1",
     "@modelcontextprotocol/sdk": "1.29.0",
     "playwright": "1.61.0",
     "zod": "4.4.3"

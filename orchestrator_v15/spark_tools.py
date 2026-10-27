@@ -11,9 +11,10 @@ BROWSER_TOOL_SCHEMA = {
             'type': 'object',
             'properties': {
                 'action': {'type': 'string', 'enum': [
-                    'navigate', 'observe', 'act', 'list_tabs', 'select_tab',
+                    'navigate', 'observe', 'act', 'list_tabs', 'select_tab', 'reload',
                     'back', 'inspect_page', 'search', 'scroll',
-                    'search_history', 'read_history', 'revisit_history']},
+                    'search_history', 'read_history', 'revisit_history',
+                    'adblock_status', 'adblock_set', 'adblock_rule', 'adblock_check', 'adblock_update']},
                 'url': {'type': 'string'},
                 'tabid': {'type': 'string'},
                 'query': {'type': 'string'},
@@ -25,7 +26,15 @@ BROWSER_TOOL_SCHEMA = {
                 'text_offset': {'type': 'integer', 'minimum': 0},
                 'result_offset': {'type': 'integer', 'minimum': 0},
                 'result_index': {'type': 'integer', 'minimum': 0},
-                'operation': {'type': 'string', 'enum': ['click', 'fill', 'select_option', 'scroll']},
+                'operation': {'type': 'string', 'enum': ['click', 'fill', 'select_option', 'scroll', 'add', 'remove']},
+                'enabled': {'type': 'boolean'},
+                'cosmetic': {'type': 'boolean'},
+                'auto_update': {'type': 'boolean'},
+                'site': {'type': 'string'},
+                'site_enabled': {'type': 'boolean'},
+                'rule': {'type': 'string'},
+                'page_url': {'type': 'string'},
+                'resource_type': {'type': 'string'},
                 'pixels': {'type': 'integer'},
                 'target_role': {'type': 'string'},
                 'target_name': {'type': 'string'},
@@ -72,6 +81,10 @@ def native_browser_call_to_block(text):
         return None
     if action in {'read_history', 'revisit_history'} and not args.get('history_id'):
         return None
+    if action == 'adblock_rule' and (args.get('operation') not in {'add', 'remove'} or not args.get('rule')):
+        return None
+    if action == 'adblock_check' and (not args.get('url') or not args.get('page_url')):
+        return None
     for key in ('offset', 'text_offset', 'result_offset', 'result_index'):
         if key in args:
             try:
@@ -88,7 +101,7 @@ def native_browser_call_to_block(text):
             return None
     if action == 'act':
         operation = args.get('operation', '').lower()
-        if operation not in allowed['operation']['enum']:
+        if operation not in {'click', 'fill', 'select_option', 'scroll'}:
             return None
         if 'index' in args and not args.get('observation_id'):
             return None

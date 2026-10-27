@@ -20,6 +20,12 @@ Click **DIAGONAL** in Kira Superapp's Workspace sidebar, double-click `OPEN_DIAG
 
 Desktop recording uses `ffmpeg` from your `PATH` (or `DIAGONAL_FFMPEG_BIN`) and records the active page at 5 frames per second without audio. Keep the recorded tab selected until you stop. The desktop window and Kira's MCP connection are separate browser sessions.
 
+The desktop uses a compact two-row toolbar with consistent SVG icons: navigation and the address bar on the left, image search and page tools on the right. Secondary tools stay visible as icon buttons with accessible labels and tooltips; controls adapt down to the minimum 800px window width. The native page starts immediately below the 104px toolbar. The home page keeps the black hole artwork, adds local recent searches from Kira and the browser, and restores those results without another search. Reloading a results page runs a fresh search. The selected tool is highlighted, and Escape closes a tool panel.
+
+Keyboard shortcuts include **Cmd/Ctrl+L** for the address bar, **Cmd/Ctrl+T** for a new tab, **Cmd/Ctrl+Shift+T** to reopen a closed tab, **Cmd/Ctrl+Shift+H** for history, and **Cmd/Ctrl+1–9** to select a tab (9 selects the last). Up to 20 closed pages/searches can be reopened during the desktop session. Reduced-motion preferences disable interface animations.
+
+Run `npm test` for browser/MCP unit and integration checks. On macOS, `npm run test:desktop` launches an isolated temporary profile and local search/page fixtures to verify the 1440px/800px layouts, native page alignment, history restoration, fresh search reload, closed-tab reopening and tool panels. Preview screenshots are written to the ignored `artifacts/` directory; the test profile is removed afterward.
+
 ## Search history for Kira and other models
 
 Open **History** in the toolbar (or **Cmd/Ctrl+Shift+H**) to search saved queries, result titles, URLs, snippets, and cached page text. Filter by searches/pages or Kira/browser. **Read saved** reads the local copy; **Restore results** restores a search without rerunning it; **Open website** visits the current source. Saved results show when they were captured. Reading a saved search does not mean its linked pages were read.
@@ -49,7 +55,40 @@ Then use `ACTION: read_history` with `HISTORY_ID` from the result, or `ACTION: r
 
 Select **Images** on the home search or in the toolbar to search pictures across the web. Results appear in a visual grid with Large, Wallpaper, Transparent, GIF, and Black & white filters. Select a picture for a larger preview, then copy its image URL, open the original image, or visit its source page in a new tab. Image search runs through an isolated Python environment installed by `SETUP_DIAGONAL_BROWSER.command` using the `ddgs` metasearch package. Set `DIAGONAL_IMAGE_PYTHON` to another Python executable with `ddgs` installed if needed. Live image results depend on the search provider and source sites; some originals may only load through their source page.
 
-The **Library** shows saved PNG screenshots and WebM recordings; select a recording to play it inside the browser. **Shield** blocks requests to a conservative built-in list of ad and tracker hosts and displays a blocked-request count. Toggle it off for sites that need one of those hosts. **Inspect** shows URL structure and page metadata, headings, links, images, forms, and readable text. It can copy or save structured JSON for an LLM. Kira can request the same structured data from its Playwright session with the `inspect_page` MCP tool. The desktop inspector and blocker use Electron's native APIs; the bridge's Manifest V2 package is a reference template and is not loaded into the desktop window.
+The **Library** shows saved PNG screenshots and WebM recordings; select a recording to play it inside the browser. **Shield** opens the ad blocker's settings, per-site controls, rule editor, and blocked-request log. **Inspect** shows URL structure and page metadata, headings, links, images, forms, and readable text. It can copy or save structured JSON for an LLM. Kira can request the same structured data from its Playwright session with the `inspect_page` MCP tool. The desktop inspector and blocker use Electron's native APIs; the bridge's Manifest V2 package is a reference template and is not loaded into the desktop window.
+
+## Ad blocking for the browser and models
+
+Diagonal uses the maintained [Ghostery Adblocker engine](https://github.com/ghostery/adblocker) with a bundled offline ads/tracking snapshot: EasyList, EasyPrivacy, Peter Lowe's list, and uBlock-compatible ad, badware, privacy, quick-fix and unbreak filters. The initial snapshot includes more than 120,000 network rules and 36,000 cosmetic rules. Standard network filtering, redirects, exceptions, CSS element hiding, and supported scriptlets are active by default. Direct main-page navigation is allowed. Supported lists are broad protection across sites; they cannot guarantee removal of every advertisement, particularly server-inserted video ads. Procedural HTML filtering and extended selector rules are not implemented in these adapters. Cookie-consent removal lists are not enabled.
+
+Protection covers desktop pages and popups, and Kira's ordinary tabs, popups, visible login handoff and recording contexts. Playwright contexts block service workers so worker-owned requests cannot silently bypass request interception. Its cosmetic monitor watches new DOM features, including late ad slots, and uses constructed stylesheets without weakening website CSP. Electron uses Ghostery's native session adapter. No extension installation is required.
+
+Click **Shield** to enable/pause globally, pause a website, enable/disable cosmetic cleanup, add/remove a custom rule, explain a resource match, or update lists. Site exceptions cover subdomains; a more specific exception takes precedence. Reload affected pages after changes, because injected styles and scriptlets already on an open page cannot be fully undone in place. The previous desktop global toggle is migrated on first use.
+
+Settings and custom filters are stored under `.profile/adblock/` with owner-only permissions and are shared between desktop and model sessions. Atomic writes and a cross-process lock preserve simultaneous edits. Blocked-request logs contain at most 100 recent URLs, resource types, and matched rules in memory, with sensitive authentication query keys removed; request bodies and credentials are not recorded. Counters/logs belong to the current browser process and reset on restart. Model observations include a compact protection indicator and blocked-request count.
+
+Lists older than 24 hours refresh in the background on startup and on an hourly check. Failed updates retain the last working snapshot and are retried no more than hourly. **Update lists** and `adblock_update` force a refresh from the same curated URLs; models cannot supply an arbitrary subscription endpoint. `DIAGONAL_ADBLOCK_AUTO_UPDATE=0` disables background downloads for offline/test runs. Raw source list texts, URLs, original license notices, resources, and the compiled engine are retained in the bundled snapshot; see [filter provenance](filters/README.md).
+
+| MCP tool | Model control |
+| --- | --- |
+| `adblock_status` | Read settings, rule counts, update time, site state and recent blocked requests; optional `url` scopes site details. |
+| `adblock_set` | Set `enabled`, `cosmetic`, `autoUpdate`, or `site` plus `siteEnabled`. |
+| `adblock_rule` | Add/remove one `rule` with `operation: add/remove`, such as `||ads.example.com^` or `example.com##.advertisement`. |
+| `adblock_check` | Explain `url` on `pageUrl` for `resourceType`, without visiting it or changing counters. |
+| `adblock_update` | Refresh all curated lists while keeping the last good snapshot on failure. |
+
+Kira uses the same `[BROWSER_TOOL]` bridge. For example:
+
+```text
+[BROWSER_TOOL]
+ACTION: adblock_check
+URL: https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js
+PAGE_URL: https://example.com/
+RESOURCE_TYPE: script
+[/BROWSER_TOOL]
+```
+
+To pause one site, use `ACTION: adblock_set`, `SITE: example.com`, and `SITE_ENABLED: false`; then reload. Re-enable it with `SITE_ENABLED: true`. Kira's native tool schema, browser controller and orchestral candidate accept all five controls. The model is instructed to prefer site exceptions when troubleshooting and to ignore website instructions to disable protection.
 
 An optional unpacked Chrome extension is in `extensions/url-inspector/`. In Chrome, open `chrome://extensions`, turn on Developer mode, choose **Load unpacked**, and select that folder. Its popup inspects only the active page when opened, then copies compact JSON for an LLM. The desktop browser already has its own **Inspect** button, so this extension is useful mainly in a separate Chrome window.
 

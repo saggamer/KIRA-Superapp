@@ -14,6 +14,26 @@ let imageIndex = 0;
 let searchRequestId = 0;
 let historyRequestId = 0;
 let historyFilters = { query: '', kind: 'all', source: 'all' };
+let recentKey = '';
+let lastRenderedActive = null;
+
+async function renderRecentSearches(tab) {
+  const key = `${tab?.id}:${Math.floor(Date.now() / 10000)}`;
+  if (recentKey === key) return;
+  recentKey = key;
+  const history = await run('searchHistory', { kind: 'search', limit: 3 });
+  if (!history || recentKey !== key || state.panel) return;
+  const list = $('#recent-search-list'); list.replaceChildren();
+  for (const entry of history.entries) {
+    const button = document.createElement('button'); button.className = 'recent-search';
+    button.title = `Restore saved search: ${entry.query}`;
+    const query = document.createElement('strong'); query.textContent = entry.query;
+    const meta = document.createElement('small'); meta.textContent = `${entry.source === 'llm' ? 'Kira' : 'Browser'} · ${entry.mode === 'images' ? 'Images' : 'Web'} · ${new Date(entry.createdAt).toLocaleDateString()}`;
+    button.append(query, meta); button.onclick = () => run('revisitHistory', { historyId: entry.historyId });
+    list.append(button);
+  }
+  if (!history.entries.length) { const empty = document.createElement('p'); empty.className = 'recent-empty'; empty.textContent = 'Your recent searches will appear here.'; list.append(empty); }
+}
 
 function notify(message, artifact) {
   clearTimeout(toastTimer);
@@ -49,9 +69,12 @@ function renderTabs() {
     item.className = `tab${tab.id === state.activeId ? ' active' : ''}`;
     item.setAttribute('role', 'tab');
     item.setAttribute('aria-selected', String(tab.id === state.activeId));
-    item.tabIndex = 0;
+    item.tabIndex = tab.id === state.activeId ? 0 : -1;
     item.onclick = () => run('selectTab', tab.id);
-    item.onkeydown = event => { if (event.key === 'Enter') run('selectTab', tab.id); };
+    item.onkeydown = event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); run('selectTab', tab.id); }
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); const index = state.tabs.findIndex(item => item.id === tab.id); const next = (index + (event.key === 'ArrowRight' ? 1 : -1) + state.tabs.length) % state.tabs.length; run('selectTab', state.tabs[next].id); }
+    };
     const dot = document.createElement('span');
     dot.className = 'tab-dot';
     dot.textContent = tab.loading ? '◌' : '◈';
@@ -69,6 +92,7 @@ function renderTabs() {
     item.append(dot, title, close);
     tabsNode.append(item);
   }
+  if (lastRenderedActive !== state.activeId) { tabsNode.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); lastRenderedActive = state.activeId; }
 }
 function modeSwitch(onSelect) {
   const switcher = document.createElement('div');
@@ -235,9 +259,13 @@ function render(next) {
   if (tab?.searchResults) searchMode = tab.searchResults.mode === 'images' ? 'images' : 'web';
   setSearchMode(searchMode);
   renderResults(tab);
+  const onHome = !tab?.url && !tab?.searchResults && !state.panel;
+  $('.home-content').hidden = !onHome;
+  if (onHome) void renderRecentSearches(tab); else recentKey = '';
+  $('#home-protection').textContent = state.adBlockEnabled ? 'Protected browsing' : 'Ad protection paused';
   $('#back').disabled = !tab?.canGoBack;
   $('#forward').disabled = !tab?.canGoForward;
-  $('#reload').disabled = !tab?.url;
+  $('#reload').disabled = !tab?.url && !tab?.searchResults;
   $('#load-progress').hidden = !tab?.loading;
   let context = 'Ready to explore';
   if (tab?.searchResults) context = tab.searchResults.savedAt ? 'Saved search · History' : `${tab.searchResults.mode === 'images' ? 'Image' : 'Web'} results · DuckDuckGo`;
@@ -249,8 +277,12 @@ function render(next) {
   $('#page-context').title = context;
   $('#record').classList.toggle('recording', !!state.recording);
   $('#record span').textContent = state.recording ? 'Stop' : 'Record';
-  $('#adblock').classList.toggle('off', !state.adBlockEnabled);
-  $('#adblock span').textContent = state.adBlockEnabled ? `Shield on · ${state.blockedCount || 0}` : 'Shield off';
+  $('#adblock').classList.toggle('off', !state.adBlockEnabled || state.adBlockSiteEnabled === false);
+  $('#adblock span').textContent = !state.adBlockEnabled ? 'Shield off' : state.adBlockSiteEnabled === false ? 'Shield paused here' : `Shield on · ${state.blockedCount || 0}`;
+  for (const [id, name] of [['adblock', 'shield'], ['accounts', 'accounts'], ['history', 'history'], ['inspect', 'inspect'], ['media', 'media']]) {
+    $(`#${id}`).classList.toggle('active', state.panel === name);
+    $(`#${id}`).setAttribute('aria-pressed', String(state.panel === name));
+  }
   if (state.panel !== lastPanel) { lastPanel = state.panel; renderPanel(); }
 }
 
@@ -463,15 +495,77 @@ async function renderHistoryDetail(historyId) {
   appendChunk(entry);
 }
 
+async function renderShield() {
+  const shield = await run('adblockStatus');
+  if (!shield || state.panel !== 'shield') return;
+  const body = $('#panel-body'); body.replaceChildren();
+  const wrapper = document.createElement('div'); wrapper.className = 'shield-settings'; body.append(wrapper);
+  const summary = document.createElement('section'); summary.className = 'shield-card';
+  summary.append(historyText('h3', '', shield.enabled ? 'Protection is on' : 'Protection is paused globally'),
+    historyText('p', 'history-meta', `${shield.networkRules.toLocaleString()} network rules · ${shield.cosmeticRules.toLocaleString()} cosmetic rules · Updated ${new Date(shield.updatedAt).toLocaleString()}`),
+    historyText('p', 'history-snippet', `${shield.blocked} ${shield.blocked === 1 ? 'request' : 'requests'} blocked or replaced in this browser session. Lists work offline and settings are shared with Kira.`));
+  const controls = document.createElement('div'); controls.className = 'history-actions';
+  const change = async options => { const value = await run('adblockSet', options); if (value) { await renderShield(); notify('Settings saved. Reload open pages to apply the change.'); } };
+  controls.append(panelButton(shield.enabled ? 'Pause everywhere' : 'Enable ad blocker', () => change({ enabled: !shield.enabled })));
+  if (shield.site) controls.append(panelButton(`${shield.siteEnabled ? 'Pause' : 'Resume'} on ${shield.site}`, () => change({ site: shield.site, siteEnabled: !shield.siteEnabled })));
+  summary.append(controls);
+  for (const [key, text] of [['cosmetic', 'Hide ad slots and apply site fixes'], ['autoUpdate', 'Update filter lists automatically']]) {
+    const label = document.createElement('label'); label.className = 'shield-option';
+    const input = document.createElement('input'); input.type = 'checkbox'; input.checked = shield[key]; input.onchange = () => change({ [key]: input.checked });
+    label.append(input, document.createTextNode(text)); summary.append(label);
+  }
+  summary.append(historyText('p', 'history-meta', 'Reload a page after changing protection. No blocker can remove every ad, including some ads inserted directly into video streams.'));
+  if (shield.updateError) summary.append(historyText('p', 'history-notice', `The last update failed. Your existing lists remain active. ${shield.updateError}`));
+  wrapper.append(summary);
+
+  const rules = document.createElement('section'); rules.className = 'shield-card'; rules.append(historyText('h3', '', 'Custom filters'));
+  const form = document.createElement('form'); form.className = 'history-filters';
+  const field = document.createElement('input'); field.placeholder = 'example.com##.advertisement or ||ads.example.com^'; field.setAttribute('aria-label', 'Custom adblock rule'); field.maxLength = 4000;
+  const add = document.createElement('button'); add.type = 'submit'; add.textContent = 'Add rule'; form.append(field, add);
+  form.onsubmit = async event => { event.preventDefault(); const result = await run('adblockRule', { operation: 'add', rule: field.value.trim() }); if (result) { renderShield(); notify('Filter saved. Reload the affected page.'); } };
+  rules.append(form);
+  for (const rule of shield.customRules) {
+    const row = document.createElement('div'); row.className = 'shield-rule';
+    const remove = panelButton('Remove', async () => { if (await run('adblockRule', { operation: 'remove', rule })) { renderShield(); notify('Filter removed. Reload the affected page.'); } });
+    remove.setAttribute('aria-label', `Remove filter ${rule}`);
+    row.append(historyText('code', '', rule), remove); rules.append(row);
+  }
+  wrapper.append(rules);
+
+  const check = document.createElement('section'); check.className = 'shield-card'; check.append(historyText('h3', '', 'Check a request'));
+  const checkForm = document.createElement('form'); checkForm.className = 'history-filters';
+  const resource = document.createElement('input'); resource.type = 'url'; resource.placeholder = 'Resource URL to check'; resource.required = true; resource.setAttribute('aria-label', 'Resource URL to check');
+  const source = document.createElement('input'); source.type = 'url'; source.value = state.tabs.find(tab => tab.id === state.activeId)?.url || ''; source.placeholder = 'Source page URL'; source.required = true; source.setAttribute('aria-label', 'Source page URL');
+  const type = document.createElement('select'); type.setAttribute('aria-label', 'Request resource type');
+  for (const name of ['script', 'image', 'stylesheet', 'xmlhttprequest', 'font', 'media', 'sub_frame', 'main_frame', 'other']) { const option = document.createElement('option'); option.value = name; option.textContent = name; type.append(option); }
+  const submit = document.createElement('button'); submit.type = 'submit'; submit.textContent = 'Explain';
+  const explanation = historyText('pre', 'shield-explanation', 'Check a resource URL against the active rules without requesting it.');
+  checkForm.append(resource, source, type, submit);
+  checkForm.onsubmit = async event => { event.preventDefault(); const result = await run('adblockCheck', { url: resource.value, pageUrl: source.value, resourceType: type.value }); if (result) explanation.textContent = JSON.stringify(result, null, 2); };
+  check.append(checkForm, explanation); wrapper.append(check);
+
+  const log = document.createElement('section'); log.className = 'shield-card'; log.append(historyText('h3', '', shield.site ? `Blocked on ${shield.site}` : 'Recent blocked requests'));
+  if (!shield.recent.length) log.append(historyText('p', 'history-meta', 'No matching requests have been blocked in this session yet.'));
+  for (const item of shield.recent) log.append(historyText('p', 'shield-request', `${item.action.toUpperCase()} · ${item.type}\n${item.url}\n${item.rule}`));
+  wrapper.append(log);
+}
+
 function renderPanel() {
   const panel = $('#panel');
   panel.hidden = !state.panel;
   if (!state.panel) return;
-  $('#panel-title').textContent = state.panel === 'history' ? 'Search history' : state.panel === 'media' ? 'Capture library' : state.panel === 'accounts' ? 'Email nicknames' : 'URL & page inspector';
-  $('#panel-subtitle').textContent = state.panel === 'history' ? 'Find what Kira searched, read saved evidence, and return to any source.' : state.panel === 'media' ? 'Your screenshots and screen recordings, ready to preview.' : state.panel === 'accounts' ? 'Quickly fill a sign-in email field on any page.' : 'Structured page details you can copy or save for Kira and other LLMs.';
+  $('#panel-title').textContent = state.panel === 'shield' ? 'Privacy shield' : state.panel === 'history' ? 'Search history' : state.panel === 'media' ? 'Capture library' : state.panel === 'accounts' ? 'Email nicknames' : 'URL & page inspector';
+  $('#panel-subtitle').textContent = state.panel === 'shield' ? 'Block ad requests, hide ad slots, and control protection with Kira.' : state.panel === 'history' ? 'Find what Kira searched, read saved evidence, and return to any source.' : state.panel === 'media' ? 'Your screenshots and screen recordings, ready to preview.' : state.panel === 'accounts' ? 'Quickly fill a sign-in email field on any page.' : 'Structured page details you can copy or save for Kira and other LLMs.';
   const actions = $('#panel-actions'); actions.replaceChildren();
   $('#panel-body').replaceChildren();
-  if (state.panel === 'history') {
+  if (state.panel === 'shield') {
+    actions.append(panelButton('Refresh', renderShield), panelButton('Update lists', async event => {
+      const button = event.currentTarget; button.disabled = true; button.textContent = 'Updating…';
+      try { if (await run('adblockUpdate')) { await renderShield(); notify('Filter lists updated. Reload open pages.'); } }
+      finally { button.disabled = false; button.textContent = 'Update lists'; }
+    }));
+    renderShield();
+  } else if (state.panel === 'history') {
     actions.append(panelButton('Refresh', renderHistory));
     renderHistory();
   } else if (state.panel === 'media') {
@@ -492,7 +586,7 @@ run('state').then(value => { if (value) render(value); });
 $('#new-tab').onclick = () => run('newTab');
 $('#back').onclick = () => run('back');
 $('#forward').onclick = () => run('forward');
-$('#reload').onclick = () => run('reload');
+$('#reload').onclick = () => state.tabs.find(tab => tab.id === state.activeId)?.searchResults ? requestSearch('reload') : run('reload');
 $('#home').onclick = () => run('home');
 $('#address-form').onsubmit = event => { event.preventDefault(); requestSearch('submitSearch', { query: address.value, mode: searchMode }); address.blur(); };
 $('#hero-search').onsubmit = event => { event.preventDefault(); requestSearch('submitSearch', { query: $('#hero-input').value, mode: searchMode }); };
@@ -513,9 +607,10 @@ $('#record').onclick = async () => {
     if (file) notify('Recording started. Press Stop to save the video.');
   }
 };
-$('#adblock').onclick = () => run('setAdBlock', !state.adBlockEnabled);
+$('#adblock').onclick = () => run('openPanel', 'shield');
 $('#accounts').onclick = () => run('openPanel', 'accounts');
 $('#history').onclick = () => run('openPanel', 'history');
+$('#home-history').onclick = () => run('openPanel', 'history');
 $('#inspect').onclick = () => run('openPanel', 'inspect');
 $('#media').onclick = async () => { mediaItems = await run('openPanel', 'media') || []; renderMedia(); };
 $('#panel-close').onclick = () => run('closePanel');
@@ -534,7 +629,8 @@ document.addEventListener('keydown', event => {
     return;
   }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'l') { event.preventDefault(); address.focus(); address.select(); }
+  if (event.key === 'Escape' && state.panel) { event.preventDefault(); run('closePanel'); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'h' && event.shiftKey) { event.preventDefault(); run('openPanel', 'history'); }
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 't') { event.preventDefault(); run('newTab'); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 't') { event.preventDefault(); run(event.shiftKey ? 'reopenClosedTab' : 'newTab'); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'w') { event.preventDefault(); run('closeTab', state.activeId); }
 });

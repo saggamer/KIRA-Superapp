@@ -33,11 +33,13 @@ ACTION_FIELDS = frozenset({
     'ACTION', 'QUERY', 'URL', 'TABID', 'SCREENSHOT', 'OPERATION', 'TARGET_NAME',
     'TARGET_ROLE', 'SELECTOR', 'INDEX', 'VALUE', 'TEXT', 'OBSERVATION_ID', 'PIXELS',
     'HISTORY_ID', 'KIND', 'SOURCE', 'LIMIT', 'OFFSET', 'TEXT_OFFSET', 'RESULT_OFFSET', 'RESULT_INDEX',
+    'ENABLED', 'COSMETIC', 'AUTO_UPDATE', 'SITE', 'SITE_ENABLED', 'RULE', 'PAGE_URL', 'RESOURCE_TYPE',
 })
 ALLOWED_BROWSER_ACTIONS = frozenset({
     'search', 'navigate', 'new_tab', 'observe', 'act', 'snapshot',
-    'inspect_page', 'back', 'select_tab', 'list_tabs', 'scroll',
+    'inspect_page', 'back', 'select_tab', 'list_tabs', 'scroll', 'reload',
     'search_history', 'read_history', 'revisit_history',
+    'adblock_status', 'adblock_set', 'adblock_rule', 'adblock_check', 'adblock_update',
 })
 
 

@@ -143,8 +143,9 @@ class ThinkingController:
             return 'Use only the available BROWSER_TOOL contract for this browser task.'
         action = fields.get('ACTION', '').lower()
         if action not in {'search', 'navigate', 'new_tab', 'observe', 'act', 'snapshot', 'scroll',
-                          'inspect_page', 'back', 'select_tab', 'list_tabs',
-                          'search_history', 'read_history', 'revisit_history'}:
+                          'inspect_page', 'back', 'select_tab', 'list_tabs', 'reload',
+                          'search_history', 'read_history', 'revisit_history',
+                          'adblock_status', 'adblock_set', 'adblock_rule', 'adblock_check', 'adblock_update'}:
             return ('Invalid ACTION. Use search for web results, new_tab to open a browser, '
                     'navigate for a URL, observe for page evidence, or act for interaction.')
         if fields.get('TABID', '').lower() in {'latest', 'current', 'active'}:
@@ -164,6 +165,14 @@ class ThinkingController:
             return 'ACTION: navigate requires a URL field.'
         if self.effect_pending and action != 'observe':
             return 'An external-effect click already occurred. Do not repeat it or navigate away; use ACTION: observe to verify the result.'
+        if action.startswith('adblock_'):
+            if action == 'adblock_check' and (not fields.get('URL') or not fields.get('PAGE_URL')):
+                return 'adblock_check requires URL for the resource and PAGE_URL for the source website.'
+            if action == 'adblock_rule' and (fields.get('OPERATION') not in {'add', 'remove'} or not fields.get('RULE')):
+                return 'adblock_rule requires OPERATION: add/remove and one RULE.'
+            if 'SITE_ENABLED' in fields and not fields.get('SITE'):
+                return 'SITE_ENABLED requires a SITE hostname or URL.'
+            return None
         if action in {'search_history', 'read_history', 'revisit_history'}:
             if action != 'search_history':
                 history_id = fields.get('HISTORY_ID', '')

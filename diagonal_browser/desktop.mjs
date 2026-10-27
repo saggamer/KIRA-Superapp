@@ -1,13 +1,14 @@
 import { app, BrowserWindow, WebContentsView, Menu, clipboard, dialog, ipcMain, session, shell } from 'electron';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { artifactPath } from './browser.mjs';
-import { blockedHost } from './blocking.mjs';
+import { AdBlocker } from './adblock.mjs';
+import { protectElectronSession } from './adblock_electron.mjs';
 import { extractPage, inspectUrl } from './page_inspection.mjs';
 import { loadEmailProfiles, saveEmailProfiles, emailProfileByNickname } from './email_profiles.mjs';
 import { SearchHistory } from './search_history.mjs';
@@ -17,7 +18,7 @@ const localDdgs = path.join(os.homedir(), 'Downloads/chatgpt_antigravity_bridge/
 const ddgs = process.env.DIAGONAL_DDGS_BIN || (existsSync(localDdgs) ? localDdgs : 'ddgs');
 const imagePython = process.env.DIAGONAL_IMAGE_PYTHON || path.join(here, '.venv/bin/python');
 const ffmpeg = process.env.DIAGONAL_FFMPEG_BIN || 'ffmpeg';
-const toolbarHeight = 136;
+const toolbarHeight = 104;
 const artifactsDir = path.dirname(artifactPath('gallery.png', 'png'));
 const profileDir = process.env.DIAGONAL_DESKTOP_SMOKE === '1'
   ? path.join(app.getPath('temp'), `diagonal-browser-smoke-${process.pid}`)
@@ -27,15 +28,18 @@ mkdirSync(profileDir, { recursive: true });
 mkdirSync(path.join(profileDir, 'session'), { recursive: true });
 let window;
 let tabs = [];
+const closedTabs = [];
 let activeId = null;
 let recording = null;
 let panel = null;
 let inspection = null;
-let blockedCount = 0;
-let adBlockEnabled = true;
+const adblock = new AdBlocker({ profileDir, onBlocked: (_item, request) => {
+  const tab = tabs.find(item => item.view?.webContents.id === request.tabId);
+  if (tab) tab.blocked += 1;
+  if (!blockPublishTimer) blockPublishTimer = setTimeout(() => { blockPublishTimer = null; publish(); }, 200);
+} });
+let blockPublishTimer;
 let emailProfiles = [];
-try { adBlockEnabled = JSON.parse(readFileSync(path.join(profileDir, 'settings.json'), 'utf8')).adBlockEnabled !== false; }
-catch { /* Default to blocking known ad and tracker hosts. */ }
 
 app.setName('Diagonal Browser');
 app.setPath('userData', profileDir);
@@ -54,6 +58,7 @@ function current() { return tabs.find(tab => tab.id === activeId); }
 function goBack() { const history = current()?.view?.webContents.navigationHistory; if (history?.canGoBack()) history.goBack(); }
 function goForward() { const history = current()?.view?.webContents.navigationHistory; if (history?.canGoForward()) history.goForward(); }
 function publicState() {
+  const shield = adblock.status(current()?.url);
   return {
     tabs: tabs.map(({ id, title, url, loading, searchResults, blocked, view }) => ({
       id, title, url, loading, searchResults, blocked,
@@ -62,7 +67,7 @@ function publicState() {
     })),
     activeId,
     recording: recording ? { tabId: recording.tabId, path: recording.path } : null,
-    panel, inspection, adBlockEnabled, blockedCount, emailProfiles,
+    panel, inspection, adBlockEnabled: shield.enabled, adBlockSiteEnabled: shield.siteEnabled, blockedCount: shield.blocked, emailProfiles,
   };
 }
 function publish() {
@@ -247,12 +252,26 @@ function closeTab(id) {
   const index = tabs.findIndex(tab => tab.id === id);
   if (index < 0) return;
   const [tab] = tabs.splice(index, 1);
+  if (tab.url || tab.searchResults) { closedTabs.push({ url: tab.url, title: tab.title, searchResults: structuredClone(tab.searchResults) }); if (closedTabs.length > 20) closedTabs.shift(); }
   if (tab.view) { window.contentView.removeChildView(tab.view); tab.view.webContents.close(); }
   if (activeId === id) activeId = tabs[Math.min(index, tabs.length - 1)]?.id || null;
   panel = null;
   inspection = null;
   if (!tabs.length) newTab();
   showActive();
+}
+async function reopenClosedTab() {
+  if (recording) throw new Error('Stop recording before restoring a tab');
+  const saved = closedTabs.pop(); if (!saved) return;
+  const id = newTab();
+  if (saved.url) await navigate(saved.url, id);
+  else { const tab = tabs.find(item => item.id === id); tab.title = saved.title; tab.searchResults = saved.searchResults; showActive(); }
+  return id;
+}
+function reloadTab() {
+  const tab = current();
+  if (tab?.searchResults) return search(tab.searchResults.query, tab.id, tab.searchResults.mode, tab.searchResults.filters || {});
+  return tab?.view?.webContents.reload();
 }
 async function screenshot() {
   const tab = current();
@@ -316,7 +335,7 @@ async function listMedia() {
 }
 
 async function openPanel(name) {
-  if (!['media', 'inspect', 'accounts', 'history'].includes(name)) throw new Error('Unknown panel');
+  if (!['media', 'inspect', 'accounts', 'history', 'shield'].includes(name)) throw new Error('Unknown panel');
   if (recording) throw new Error('Stop recording before opening a panel');
   if (name === 'inspect') {
     const tab = current();
@@ -334,10 +353,9 @@ async function openPanel(name) {
 function closePanel() { panel = null; showActive(); }
 
 async function setAdBlock(enabled) {
-  adBlockEnabled = Boolean(enabled);
-  await writeFile(path.join(profileDir, 'settings.json'), JSON.stringify({ adBlockEnabled }));
+  const state = await adblock.configure({ enabled: Boolean(enabled) });
   publish();
-  return adBlockEnabled;
+  return state.enabled;
 }
 
 async function fillEmailProfile(nickname) {
@@ -379,17 +397,8 @@ if (hasInstanceLock) app.whenReady().then(async () => {
   });
   emailProfiles = await loadEmailProfiles(profileDir).catch(() => []);
   app.dock?.setIcon(path.join(here, 'ui/assets/diagonal-wordmark.png'));
-  let blockPublishTimer;
-  session.defaultSession.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
-    const blocked = adBlockEnabled && blockedHost(details.url, details.resourceType);
-    if (blocked) {
-      blockedCount += 1;
-      const tab = tabs.find(item => item.view?.webContents.id === details.webContentsId);
-      if (tab) tab.blocked += 1;
-      if (!blockPublishTimer) blockPublishTimer = setTimeout(() => { blockPublishTimer = null; publish(); }, 200);
-    }
-    callback({ cancel: !!blocked });
-  });
+  await protectElectronSession(session.defaultSession, adblock);
+  void adblock.autoUpdate();
   window = new BrowserWindow({ width: 1440, height: 900, minWidth: 800, minHeight: 560, title: 'Diagonal Browser', backgroundColor: '#080706', webPreferences: { preload: path.join(here, 'ui/preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
@@ -398,12 +407,15 @@ if (hasInstanceLock) app.whenReady().then(async () => {
     { label: 'File', submenu: [
       { label: 'New Tab', accelerator: 'CommandOrControl+T', click: () => newTab() },
       { label: 'Close Tab', accelerator: 'CommandOrControl+W', click: () => closeTab(activeId) },
+      { label: 'Reopen Closed Tab', accelerator: 'CommandOrControl+Shift+T', click: () => { void reopenClosedTab(); } },
     ] },
     { label: 'Navigate', submenu: [
       { label: 'Address Bar', accelerator: 'CommandOrControl+L', click: () => window.webContents.send('diagonal:focus-address') },
       { label: 'Back', accelerator: 'Alt+Left', click: goBack },
       { label: 'Forward', accelerator: 'Alt+Right', click: goForward },
-      { label: 'Reload', accelerator: 'CommandOrControl+R', click: () => current()?.view?.webContents.reload() },
+      { label: 'Reload', accelerator: 'CommandOrControl+R', click: reloadTab },
+      { label: 'Search History', accelerator: 'CommandOrControl+Shift+H', click: () => { void openPanel('history'); } },
+      ...Array.from({ length: 9 }, (_, index) => ({ label: `Select Tab ${index + 1}`, accelerator: `CommandOrControl+${index + 1}`, click: () => { const tab = index === 8 ? tabs.at(-1) : tabs[index]; if (tab) selectTab(tab.id); } })),
     ] },
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ]));
@@ -449,7 +461,7 @@ if (hasInstanceLock) app.whenReady().then(async () => {
       if (!videoPlayable) throw new Error('Capture library could not play the saved WebM');
       closePanel();
       await search('Diagonal Browser');
-      console.log(JSON.stringify({ homeShot, pageShot, video, inspectedTitle: inspected.page.title, blocked: blockedCount, mediaCount, videoPlayable, results: current().searchResults.results.length }));
+      console.log(JSON.stringify({ homeShot, pageShot, video, inspectedTitle: inspected.page.title, blocked: adblock.blocked, mediaCount, videoPlayable, results: current().searchResults.results.length }));
       app.quit();
     } catch (error) {
       console.error(error);
@@ -463,6 +475,7 @@ ipcMain.handle('diagonal:action', async (event, action, value) => {
   switch (action) {
     case 'state': return publicState();
     case 'newTab': return newTab(value);
+    case 'reopenClosedTab': return reopenClosedTab();
     case 'selectTab': return selectTab(value);
     case 'closeTab': return closeTab(value);
     case 'navigate': return navigate(value);
@@ -475,7 +488,7 @@ ipcMain.handle('diagonal:action', async (event, action, value) => {
     }
     case 'back': return goBack();
     case 'forward': return goForward();
-    case 'reload': return current()?.view?.webContents.reload();
+    case 'reload': return reloadTab();
     case 'screenshot': return screenshot();
     case 'startRecording': return startRecording();
     case 'stopRecording': return stopRecording();
@@ -488,6 +501,11 @@ ipcMain.handle('diagonal:action', async (event, action, value) => {
     case 'readHistory': return searchHistory.read(value?.historyId, value || {});
     case 'revisitHistory': return revisitHistory(value);
     case 'setAdBlock': return setAdBlock(value);
+    case 'adblockStatus': return adblock.status(current()?.url);
+    case 'adblockSet': { const result = await adblock.configure(value || {}); publish(); return result; }
+    case 'adblockRule': { const result = await adblock.rule(value?.operation, value?.rule); publish(); return result; }
+    case 'adblockCheck': return adblock.check(value?.url, value?.pageUrl || current()?.url, value?.resourceType || 'script');
+    case 'adblockUpdate': { const result = await adblock.update(); publish(); return result; }
     case 'saveEmailProfiles': emailProfiles = await saveEmailProfiles(value, profileDir); publish(); return emailProfiles;
     case 'useEmailProfile': return fillEmailProfile(value);
     case 'copyInspection': if (inspection) clipboard.writeText(JSON.stringify(inspection, null, 2)); return;

@@ -15,7 +15,7 @@ APP_CONTROL = re.compile(
     r"mcp|connectors?|configuration targets?)\b", re.I)
 BROWSER = re.compile(
     r"\b(?:diagonal browser|browser|web ?page|tab|tabs|screenshot|"
-    r"web search|search (?:the )?web|search online|look up online|"
+    r"web search|search (?:the )?web|search online|look up online|ad ?block(?:er|ing)?|privacy shield|block ads|"
     r"search history|browsing history|previous searches|past searches|earlier searches|"
     r"previously searched|searched (?:for )?(?:before|earlier|yesterday)|saved searches|"
     r"surf (?:the )?(?:web|youtube)|browse (?:the )?(?:web|youtube)|"

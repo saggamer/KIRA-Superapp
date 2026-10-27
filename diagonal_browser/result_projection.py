@@ -51,6 +51,8 @@ def render_browser_result(value: object, *, max_chars: int = 16000) -> str:
     fallback = {key: value[key] for key in (
         "tabId", "url", "title", "status", "path", "screenshot", "observationId",
         "historyId", "nextOffset", "nextTextOffset", "nextResultOffset",
+        "enabled", "site", "siteEnabled", "activeOnSite", "ready", "engine", "blocked",
+        "networkRules", "cosmeticRules", "updatedAt",
     ) if key in value}
     fallback["resultTruncated"] = True
     fallback["message"] = "Browser result exceeded the model budget. Inspect this page in smaller steps."

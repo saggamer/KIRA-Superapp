@@ -1,13 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blockedHost } from '../blocking.mjs';
 import { inspectUrl } from '../page_inspection.mjs';
-
-test('ad blocking matches whole hostnames and leaves main navigation open', () => {
-  assert.equal(blockedHost('https://ads.doubleclick.net/script.js', 'script'), 'doubleclick.net');
-  assert.equal(blockedHost('https://notdoubleclick.net/script.js', 'script'), null);
-  assert.equal(blockedHost('https://doubleclick.net/', 'mainFrame'), null);
-});
 
 test('URL inspection exposes structure and technical flags', () => {
   const info = inspectUrl('http://example.com/path?utm_source=x&k=1#section');

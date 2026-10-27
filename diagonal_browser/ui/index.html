@@ -13,33 +13,30 @@
       <div class="brand" aria-label="Diagonal Browser">DIAGONAL</div>
       <div class="tabs" id="tabs" role="tablist" aria-label="Browser tabs"></div>
       <button class="new-tab" id="new-tab" title="New tab" aria-label="New tab">+</button>
-      <div class="window-label">BROWSER</div>
+      <div class="page-context" id="page-context" title="Current page"><span class="context-dot"></span><span id="page-context-label">Ready to explore</span></div>
     </div>
     <div class="navigation-row">
       <div class="navigation-controls" role="group" aria-label="Navigation">
-        <button class="icon-button" id="back" title="Back" aria-label="Back">←</button>
-        <button class="icon-button" id="forward" title="Forward" aria-label="Forward">→</button>
-        <button class="icon-button" id="reload" title="Reload" aria-label="Reload">↻</button>
-        <button class="icon-button" id="home" title="Home" aria-label="Home">⌂</button>
+        <button class="icon-button" id="back" title="Back · Alt+←" aria-label="Back"><svg aria-hidden="true"><use href="icons.svg#back"/></svg></button>
+        <button class="icon-button" id="forward" title="Forward · Alt+→" aria-label="Forward"><svg aria-hidden="true"><use href="icons.svg#forward"/></svg></button>
+        <button class="icon-button" id="reload" title="Reload · ⌘R" aria-label="Reload"><svg aria-hidden="true"><use href="icons.svg#reload"/></svg></button>
+        <button class="icon-button" id="home" title="Home" aria-label="Home"><svg aria-hidden="true"><use href="icons.svg#home"/></svg></button>
       </div>
       <form id="address-form" class="address-wrap">
-        <span class="address-icon">◇</span>
+        <svg class="address-icon" aria-hidden="true"><use href="icons.svg#search"/></svg>
         <input id="address" type="text" spellcheck="false" autocomplete="off" placeholder="Search with DDG or enter a URL" aria-label="Address and search">
-        <span class="address-hint">↵</span>
+        <kbd class="address-hint">⌘ L</kbd>
       </form>
-      <button class="tool-button images-tool" id="images" title="Search images" aria-label="Search images">▧ <span>Images</span></button>
-    </div>
-    <div class="utility-row">
-      <div class="page-context" id="page-context" title="Current page"><span class="context-dot"></span><span id="page-context-label">Ready to explore</span></div>
+      <button class="tool-button images-tool" id="images" title="Search images" aria-label="Search images"><svg aria-hidden="true"><use href="icons.svg#image"/></svg><span>Images</span></button>
       <div class="utility-actions" role="group" aria-label="Page tools">
-        <button class="tool-button" id="screenshot" title="Save screenshot" aria-label="Save screenshot">▣ <span>Capture</span></button>
-        <button class="tool-button" id="record" title="Record current page" aria-label="Record current page">● <span>Record</span></button>
+        <button class="tool-button" id="screenshot" title="Save screenshot" aria-label="Save screenshot"><svg aria-hidden="true"><use href="icons.svg#camera"/></svg><span>Capture</span></button>
+        <button class="tool-button" id="record" title="Record current page" aria-label="Record current page"><svg aria-hidden="true"><use href="icons.svg#record"/></svg><span>Record</span></button>
         <span class="utility-separator" aria-hidden="true"></span>
-        <button class="tool-button" id="adblock" title="Toggle ad and tracker blocking" aria-label="Toggle ad and tracker blocking">◧ <span>Shield on</span></button>
-        <button class="tool-button" id="accounts" title="Email nicknames" aria-label="Email nicknames">◎ <span>Accounts</span></button>
-        <button class="tool-button" id="history" title="Search Kira and browser history" aria-label="Search history">◷ <span>History</span></button>
-        <button class="tool-button" id="inspect" title="Inspect the current URL and page for LLM use" aria-label="Inspect current page">◇ <span>Inspect</span></button>
-        <button class="tool-button" id="media" title="View saved screenshots and recordings" aria-label="Media library">▧ <span>Library</span></button>
+        <button class="tool-button shield-tool" id="adblock" title="Ad blocker settings and blocked requests" aria-label="Ad blocker settings"><svg aria-hidden="true"><use href="icons.svg#shield"/></svg><span>Shield on</span></button>
+        <button class="tool-button secondary-tool" id="accounts" title="Email nicknames" aria-label="Email nicknames"><svg aria-hidden="true"><use href="icons.svg#account"/></svg><span>Accounts</span></button>
+        <button class="tool-button secondary-tool" id="history" title="Search history · ⌘⇧H" aria-label="Search history"><svg aria-hidden="true"><use href="icons.svg#history"/></svg><span>History</span></button>
+        <button class="tool-button secondary-tool" id="inspect" title="Inspect the current URL and page for LLM use" aria-label="Inspect current page"><svg aria-hidden="true"><use href="icons.svg#inspect"/></svg><span>Inspect</span></button>
+        <button class="tool-button secondary-tool" id="media" title="Screenshots and recordings" aria-label="Media library"><svg aria-hidden="true"><use href="icons.svg#library"/></svg><span>Library</span></button>
       </div>
     </div>
     <div class="load-progress" id="load-progress" hidden><span></span></div>
@@ -47,32 +44,37 @@
   <main id="home-page" class="home-page">
     <div class="image-wash"></div>
     <div id="search-status" class="search-status" role="status" hidden><span class="search-spinner"></span><span id="search-status-text">Searching…</span></div>
+    <div class="home-content">
     <div class="hero">
-      <div class="eyebrow"><span class="pulse"></span> EXPLORE WITHOUT LIMITS</div>
-      <h1>Explore the<br><em>unseen.</em></h1>
-      <p>One space for searching, browsing, and capturing the web.</p>
+      <div class="eyebrow"><span class="pulse"></span> A LITTLE CURIOSITY GOES A LONG WAY</div>
+      <h1>Follow your<br><em>curiosity.</em></h1>
+      <p>Find something worth exploring.</p>
       <div class="search-switch" role="tablist" aria-label="Search type">
         <button type="button" class="selected" data-mode="web" role="tab" aria-selected="true">⌕ <span>Web</span></button>
         <button type="button" data-mode="images" role="tab" aria-selected="false">▧ <span>Images</span></button>
       </div>
       <form id="hero-search" class="hero-search">
-        <span>⌕</span>
+        <svg aria-hidden="true"><use href="icons.svg#search"/></svg>
         <input id="hero-input" type="text" autocomplete="off" placeholder="Search anything or paste a link" aria-label="Search the web">
-        <button type="submit">Explore <span>↗</span></button>
+        <button type="submit" aria-label="Search">Search <svg aria-hidden="true"><use href="icons.svg#arrow"/></svg></button>
       </form>
       <div class="quick-links">
-        <span>QUICK ACCESS</span>
-        <button data-url="https://example.com">Example</button>
-        <button data-url="https://www.wikipedia.org">Wikipedia</button>
-        <button data-url="https://github.com">GitHub</button>
+        <button data-url="https://www.wikipedia.org"><span class="shortcut-icon">W</span><span>Wikipedia</span><svg aria-hidden="true"><use href="icons.svg#arrow"/></svg></button>
+        <button data-url="https://github.com"><span class="shortcut-icon">G</span><span>GitHub</span><svg aria-hidden="true"><use href="icons.svg#arrow"/></svg></button>
+        <button data-url="https://duckduckgo.com"><span class="shortcut-icon">D</span><span>DuckDuckGo</span><svg aria-hidden="true"><use href="icons.svg#arrow"/></svg></button>
       </div>
+    </div>
+    <section class="recent-searches" aria-label="Recent searches">
+      <div class="recent-heading"><h2>Pick up where you left off</h2><button id="home-history">View history <span aria-hidden="true">↗</span></button></div>
+      <div id="recent-search-list" class="recent-search-list"><p class="recent-empty">Your recent searches will appear here.</p></div>
+    </section>
+    <div class="home-status"><span id="home-protection">Protected browsing</span><span class="home-status-dot" aria-hidden="true">·</span><span>History stays on this device</span><kbd>⌘ L to go anywhere</kbd></div>
     </div>
     <section id="results" class="results" hidden></section>
     <section id="panel" class="panel" hidden>
       <div class="panel-top"><div><div class="panel-eyebrow">DIAGONAL TOOLS</div><h2 id="panel-title"></h2><p id="panel-subtitle"></p></div><div class="panel-actions" id="panel-actions"></div><button id="panel-close" class="panel-close" title="Close panel">×</button></div>
       <div id="panel-body" class="panel-body"></div>
     </section>
-    <div class="footer-note">DIAGONAL BROWSER <span>•</span> POWERED BY CHROMIUM + DDG</div>
   </main>
   <div id="image-viewer" class="image-viewer" role="dialog" aria-modal="true" aria-label="Image preview" hidden>
     <button id="image-viewer-backdrop" class="image-viewer-backdrop" aria-label="Close image preview"></button>

@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { extractPage, inspectUrl } from './page_inspection.mjs';
 import { loadEmailProfiles, emailProfileByNickname, defaultProfileDir } from './email_profiles.mjs';
 import { SearchHistory } from './search_history.mjs';
+import { AdBlocker } from './adblock.mjs';
+import { protectPlaywrightContext } from './adblock_playwright.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(process.env.DIAGONAL_ARTIFACTS_DIR || path.join(here, 'artifacts'));
@@ -48,7 +50,13 @@ function run(command, args, timeoutMs = 20000) {
 }
 
 export class DiagonalBrowser {
-  constructor({ profileDir = defaultProfileDir, persistAuth = false, loginHeadless = false, historyEnabled = true } = {}) { this.browser = null; this.context = null; this.pages = new Map(); this.lastObservations = new Map(); this.active = null; this.recording = null; this.profileDir = profileDir; this.persistAuth = persistAuth; this.loginHeadless = loginHeadless; this.loginBrowser = null; this.loginContext = null; this.loginSourceId = null; this.authSaveTimer = null; this.authSaving = Promise.resolve(); this.history = new SearchHistory(profileDir); this.historyEnabled = historyEnabled; this.historyPages = new WeakMap(); }
+  constructor({ profileDir = defaultProfileDir, persistAuth = false, loginHeadless = false, historyEnabled = true } = {}) { this.browser = null; this.context = null; this.pages = new Map(); this.lastObservations = new Map(); this.active = null; this.recording = null; this.profileDir = profileDir; this.persistAuth = persistAuth; this.loginHeadless = loginHeadless; this.loginBrowser = null; this.loginContext = null; this.loginSourceId = null; this.authSaveTimer = null; this.authSaving = Promise.resolve(); this.history = new SearchHistory(profileDir); this.historyEnabled = historyEnabled; this.historyPages = new WeakMap(); this.adblock = new AdBlocker({ profileDir }); }
+
+  async adblockStatus(url) { await this.adblock.init(); return this.adblock.status(url || this.pages.get(this.active)?.url()); }
+  adblockSet(options) { return this.adblock.configure(options); }
+  adblockRule(operation, rule) { return this.adblock.rule(operation, rule); }
+  adblockCheck(url, pageUrl, resourceType) { return this.adblock.check(url, pageUrl, resourceType); }
+  async adblockUpdate() { await this.adblock.init(); return this.adblock.update(); }
 
   async _rememberPage(page, value) {
     if (!this.historyEnabled || page.context() === this.loginContext || !/^https?:\/\//i.test(value.url)) return {};
@@ -81,7 +89,9 @@ export class DiagonalBrowser {
       catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
     this.browser = await chromium.launch({ executablePath: chrome, headless: process.env.DIAGONAL_HEADED !== '1' });
-    this.context = await this.browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: false, ...(storageState ? { storageState } : {}) });
+    this.context = await this.browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: false, serviceWorkers: 'block', ...(storageState ? { storageState } : {}) });
+    await protectPlaywrightContext(this.context, this.adblock);
+    void this.adblock.autoUpdate();
     this.context.setDefaultTimeout(10000);
     this.context.setDefaultNavigationTimeout(20000);
     this.context.on('page', page => this._trackPage(page));
@@ -218,6 +228,7 @@ export class DiagonalBrowser {
 
   async observe(tabId, screenshot = false) {
     const [id, page] = await this.page(tabId);
+    await page.waitForFunction(() => window.__diagonalShieldReady !== false, null, { timeout: 1000 }).catch(() => {});
     const viewport = page.viewportSize() || { width: 1440, height: 900 };
     const elements = await page.locator(actionableSelector).evaluateAll((nodes, viewport) => nodes.map((node, index) => {
       const box = node.getBoundingClientRect();
@@ -251,6 +262,7 @@ export class DiagonalBrowser {
     const bodyText = await page.locator('body').innerText().catch(() => '');
     const result = {
       tabId: id, url: page.url(), title: await page.title(), viewport, grid: { columns: 12, rows: 8 },
+      adblock: { active: this.adblock.enabledFor(page.url()), blocked: this.adblock.blocked },
       text: bodyText.slice(0, 9000),
       elements,
     };
@@ -382,7 +394,8 @@ export class DiagonalBrowser {
     const loginBrowser = await chromium.launch({ executablePath: chrome, headless: this.loginHeadless });
     try {
       const state = await this.context.storageState({ indexedDB: true });
-      const loginContext = await loginBrowser.newContext({ viewport: { width: 1440, height: 900 }, storageState: state, acceptDownloads: false });
+      const loginContext = await loginBrowser.newContext({ viewport: { width: 1440, height: 900 }, storageState: state, acceptDownloads: false, serviceWorkers: 'block' });
+      await protectPlaywrightContext(loginContext, this.adblock);
       loginContext.setDefaultTimeout(10000);
       loginContext.setDefaultNavigationTimeout(20000);
       this.loginBrowser = loginBrowser;
@@ -469,7 +482,8 @@ export class DiagonalBrowser {
     const [id, page] = await this.page(tabId);
     await mkdir(root, { recursive: true });
     const state = await this.context.storageState();
-    const context = await this.browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: state, recordVideo: { dir: root, size: { width: 1440, height: 900 } } });
+    const context = await this.browser.newContext({ viewport: { width: 1440, height: 900 }, storageState: state, serviceWorkers: 'block', recordVideo: { dir: root, size: { width: 1440, height: 900 } } });
+    await protectPlaywrightContext(context, this.adblock);
     context.setDefaultTimeout(10000);
     let recordingPage;
     try {
@@ -517,6 +531,7 @@ export class DiagonalBrowser {
   }
 
   async shutdown() {
+    this.adblock.dispose();
     if (this.recording) await this.recordStop().catch(() => {});
     await this.loginBrowser?.close();
     clearTimeout(this.authSaveTimer);

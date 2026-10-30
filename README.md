@@ -18,6 +18,34 @@ The current model runtime uses MLX and therefore does not support Intel Macs.
 
 ## Install
 
+For a complete setup from a GitHub clone or an extracted **Download ZIP**, run:
+
+```bash
+cd KIRA-Superapp  # ZIP downloads may be named KIRA-Superapp-main
+zsh DOWNLOAD_ALL.command
+```
+
+This installs the Python, native Live, voice, and Diagonal Browser dependencies,
+then downloads Orchestrator V1, MLX Whisper, the revision-pinned Live Listener,
+Thinker and Talker, published Live add-ons, Qwen ASR, portable Whisper, and Kokoro
+model/voice assets. Existing local Live add-ons are preserved. Downloads can be
+retried; complete cached model files are reused. Allow substantially more disk
+space than the 12 GB basic install; the Live donors alone contain several GB of weights.
+Python 3.11/3.12, Node.js 20+ (with npm), and Git must already be installed.
+Diagonal Browser also needs Google Chrome or `DIAGONAL_CHROME_BIN`.
+
+Use `zsh DOWNLOAD_ALL.command --models-only` to fetch models with an existing
+runtime. All launchers honor `KIRA_PYTHON`. For Hugging Face authentication, run
+`~/.local/share/kira-superapp/runtime/bin/hf auth login` (or the `hf` alongside
+your configured Python), accept any required model terms, and rerun setup.
+Research previews such as Orchestrator v1.5 and Z-Image use separate environments
+and are not part of this standard app setup.
+The legacy `qwen-asr` Python backend requires Transformers 4 and is excluded from
+the native Live environment, which uses Transformers 5. Live uses `mlx-audio`;
+ordinary speech input uses the installed Whisper backends.
+
+For the smaller Orchestrator V1 and Whisper installation:
+
 Clone the repository and run the installer:
 
 ```bash

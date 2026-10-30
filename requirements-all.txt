@@ -1,0 +1,6 @@
+# Complete supported Superapp runtime; resolve together to catch conflicts.
+-r requirements.txt
+-r requirements-kira-live.txt
+mlx-vlm
+# qwen-asr pins Transformers 4.57.6 and cannot share Live's Transformers 5 runtime.
+# Native Live uses mlx-audio; ordinary STT uses the installed Whisper backends.

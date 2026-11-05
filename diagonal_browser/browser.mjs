@@ -349,8 +349,7 @@ export class DiagonalBrowser {
         this.active = id;
         const viewport = page.viewportSize();
         if (x < 0 || y < 0 || x >= viewport.width || y >= viewport.height) throw new Error('Click coordinates must be inside the viewport');
-        await page.mouse.click(x, y);
-        return this.observe(this.active);
+        return this._clickAndObserve(id, page, () => page.mouse.click(x, y));
       }
       return this.click(selector, index, text, tabId, role, targetName);
     }
@@ -450,7 +449,18 @@ export class DiagonalBrowser {
   async click(selector, index, text, tabId, role, targetName) {
     const [id, page] = await this.page(tabId);
     this.active = id;
-    await this._target(page, selector, index, text, role, targetName).click();
+    return this._clickAndObserve(id, page, () => this._target(page, selector, index, text, role, targetName).click());
+  }
+
+  async _clickAndObserve(id, page, click) {
+    // Popup events can arrive after the click promise resolves on Linux Chromium.
+    const pendingPopup = page.waitForEvent('popup', { timeout: 750 }).catch(() => null);
+    await click();
+    const popup = await pendingPopup;
+    if (popup && !popup.isClosed()) {
+      this.active = this._trackPage(popup);
+      await popup.waitForLoadState('domcontentloaded');
+    }
     if (page.isClosed()) return { tabId: id, closed: true, activeTabId: this.active };
     return this.observe(this.active);
   }

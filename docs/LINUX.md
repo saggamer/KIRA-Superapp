@@ -30,7 +30,7 @@ Install system libraries (Ubuntu):
 sudo apt-get update
 sudo apt-get install python3-venv python3-dev build-essential portaudio19-dev \
   libportaudio2 libasound2t64 libnss3 libatk-bridge2.0-0 libgtk-3-0t64 \
-  libgbm1 libxss1 libxcb-cursor0 libxkbcommon-x11-0 libegl1 libopengl0 \
+  libgbm1 libxss1 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-image0 libxcb-render-util0 libxcb-xinerama0 libxkbcommon-x11-0 libegl1 libopengl0 \
   libpulse0 ffmpeg xdg-utils gnome-keyring
 ```
 

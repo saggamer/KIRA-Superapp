@@ -52,7 +52,7 @@ try {
   assert.match(await readFile(calls, 'utf8'), /search/);
   await page.locator('.tab.active .tab-close').click();
   await page.locator('.home-content').waitFor();
-  await page.keyboard.press('Meta+Shift+T');
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+T' : 'Control+Shift+T');
   await page.getByRole('button', { name: 'Fresh browser result', exact: true }).waitFor();
   await page.getByLabel('Address and search', { exact: true }).fill(url);
   await page.getByLabel('Address and search', { exact: true }).press('Enter');

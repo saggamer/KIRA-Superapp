@@ -15,7 +15,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(process.env.DIAGONAL_ARTIFACTS_DIR || path.join(here, 'artifacts'));
 const localDdgs = path.join(os.homedir(), 'Downloads/chatgpt_antigravity_bridge/bin/ddgs');
 const ddgs = process.env.DIAGONAL_DDGS_BIN || (existsSync(localDdgs) ? localDdgs : 'ddgs');
-const chrome = process.env.DIAGONAL_CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const chrome = process.env.DIAGONAL_CHROME_BIN || (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined);
 const importPlaywright = () => import('playwright');
 const actionableSelector = 'a[href], button, input, textarea, select, [role="button"], [role="link"], [role="textbox"], [role="checkbox"], [role="radio"], [role="combobox"]';
 

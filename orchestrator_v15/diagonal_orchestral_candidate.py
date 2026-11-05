@@ -178,8 +178,7 @@ def generate_branches(model, tokenizer, messages, *, max_tokens=256,
     branches = [parse_branch(raw) for raw in raw_branches]
     valid = [(index, branch) for index, branch in enumerate(branches) if branch]
     judge_scores = [0] * len(branches)
-    distinct_actions = {branch['action'] for _, branch in valid}
-    if len(distinct_actions) > 1:
+    if valid:
         descriptions = [dict(index=index, evidence=branch['evidence'], plan=branch['plan'],
                              risk=branch['risk'], action=branch['action']) for index, branch in valid]
         judge_messages = [
@@ -205,7 +204,8 @@ def generate_branches(model, tokenizer, messages, *, max_tokens=256,
             pass
     return {'branches': branches, 'raw_branches': raw_branches,
             'judge_scores': judge_scores, 'generation_mode': 'mlx_batch_early_stop',
-            'model_generations': len(LENSES) + int(len(distinct_actions) > 1)}
+            'evaluation_performed': bool(valid),
+            'model_generations': len(LENSES) + int(bool(valid))}
 
 
 def select_branch(result, controller):

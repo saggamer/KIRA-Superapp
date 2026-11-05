@@ -35,6 +35,7 @@ class KiraV15ProfileTests(unittest.TestCase):
                 'command': sys.executable, 'args': [str(fixture)], 'env': {},
             }}}))
             brain = KiraBrain.__new__(KiraBrain)
+            brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
             brain._resolve_path = lambda value: str(value)
             brain.mcp_config_targets = {'kira_app': str(target)}
             brain._atomic_write_json = lambda path, value: Path(path).write_text(json.dumps(value))
@@ -49,6 +50,7 @@ class KiraV15ProfileTests(unittest.TestCase):
     def test_profile_can_retrieve_local_chat_preference(self):
         with tempfile.TemporaryDirectory() as directory:
             brain = KiraBrain.__new__(KiraBrain)
+            brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
             brain.smart_memory = SmartMemoryStore(str(Path(directory) / 'memory.json'))
             brain.smart_memory.remember_exchange(
                 'chat-one', 'I prefer concise answers about my project.',
@@ -60,6 +62,7 @@ class KiraV15ProfileTests(unittest.TestCase):
 
     def test_profile_receives_retrieved_memory_as_untrusted_continuity(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _model: None
         brain._load_chat_messages = lambda _chat_id: []
@@ -76,6 +79,7 @@ class KiraV15ProfileTests(unittest.TestCase):
 
     def test_coding_agents_wait_for_review_and_do_not_claim_patch(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _model: None
         brain._truncate = lambda value, length=1000: str(value)[:length]
@@ -103,6 +107,7 @@ class KiraV15ProfileTests(unittest.TestCase):
 
     def test_live_mcp_call_stops_without_creating_configuration(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain._evict_and_load = lambda _model: self.fail('No model load is needed')
         answer = brain._run_v15_profile('Use the MCP fixture.lookup tool now.',
                                         'mcp-live-test', 'diagonal')
@@ -110,6 +115,7 @@ class KiraV15ProfileTests(unittest.TestCase):
 
     def test_empty_environment_draft_repairs_json_shape(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _model: None
         brain._truncate = lambda value, length=1000: str(value)[:length]
@@ -127,6 +133,7 @@ class KiraV15ProfileTests(unittest.TestCase):
 
     def test_mcp_draft_is_executable_in_control_profile(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _model: None
         brain._truncate = lambda value, length=1000: str(value)[:length]
@@ -145,6 +152,7 @@ class KiraV15ProfileTests(unittest.TestCase):
 
     def test_mcp_apply_needs_explicit_request_and_fields(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _model: None
         brain._truncate = lambda value, length=1000: str(value)[:length]
@@ -161,6 +169,7 @@ class KiraV15ProfileTests(unittest.TestCase):
 
     def test_mcp_apply_uses_validated_permission_path(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _model: None
         brain._truncate = lambda value, length=1000: str(value)[:length]
@@ -181,6 +190,7 @@ class KiraV15ProfileTests(unittest.TestCase):
 
     def test_mcp_apply_repairs_wrong_tool_wrapper_before_validation(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _model: None
         brain._truncate = lambda value, length=1000: str(value)[:length]
@@ -202,6 +212,7 @@ class KiraV15ProfileTests(unittest.TestCase):
                          [1, 1, 2, 3])
         self.assertEqual(normalize_effort("unexpected"), "medium")
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         self.assertEqual(brain._select_brain_for_mode("agent", "orchestrator_v15"),
                          "orchestrator_v15")
         self.assertEqual(brain._select_brain_for_mode("vibe_coding", "orchestrator_v15"),
@@ -214,12 +225,20 @@ class KiraV15ProfileTests(unittest.TestCase):
         for value in ("low", "medium", "high", "diagonal"):
             self.assertIn(f'<option value="{value}"', markup)
         self.assertIn('value="orchestrator_v15"', markup)
-        self.assertIn('value="orchestrator_v15_thinking"', markup)
+        selector = markup.split('id="model-selector"', 1)[1].split('</select>', 1)[0]
+        self.assertEqual(selector.count('<option '), 4)
+        for value, label in [('orchestrator_v15', 'Orchestrator v1.5'),
+                             ('orchestrator', 'Orchestrator v1'),
+                             ('orchestrator_v15_ppt_preview', 'Horizon 1'), ('kira', 'Kira Live 1')]:
+            self.assertIn(f'value="{value}"', selector)
+            self.assertIn(f'>{label}</option>', selector)
+        self.assertNotIn('Preview', selector)
         self.assertIn('thinkingEffortSelector.value', markup)
         self.assertIn("const selectedBrain = currentMode === 'vibe_coding' ? 'orchestrator' : modelSelector.value;", markup)
 
     def test_diagonal_executes_only_selected_browser_proposal(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda model: None
         brain._truncate = lambda text, length=1000: str(text)[:length]
@@ -247,6 +266,7 @@ class KiraV15ProfileTests(unittest.TestCase):
 
     def test_diagonal_search_then_capture_from_result(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda model: None
         brain._truncate = lambda value, length=1000: str(value)[:length]

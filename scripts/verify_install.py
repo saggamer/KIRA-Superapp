@@ -2,6 +2,7 @@
 """Verify KIRA's runtime and local model discovery without loading weights."""
 
 import platform
+import argparse
 from pathlib import Path
 import sys
 
@@ -13,6 +14,9 @@ from listen import LocalSTT
 
 
 def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--all',action='store_true',help='Also verify the Horizon editor and its image runtime')
+    args=parser.parse_args()
     if platform.system() != "Darwin":
         raise SystemExit("KIRA Superapp requires macOS.")
     if platform.machine() != "arm64":
@@ -33,6 +37,13 @@ def main():
     print("KIRA runtime verification: PASS")
     print("Orchestrator:", model_path)
     print("Speech-to-text:", stt.status())
+    if args.all:
+        from horizon_mlx.catalog import paths,validate_bundle,validate_base
+        from horizon_mlx.install import runtime_python
+        bundle,base=paths(APP_ROOT)
+        validate_bundle(bundle,hashes=False);validate_base(base,hashes=False)
+        if not runtime_python(APP_ROOT).is_file():raise SystemExit('Horizon image runtime is missing')
+        print('Horizon 1 MLX:',bundle)
 
 
 if __name__ == "__main__":

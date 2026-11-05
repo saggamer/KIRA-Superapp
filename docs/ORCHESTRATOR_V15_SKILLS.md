@@ -13,7 +13,7 @@ Official documentation reviewed on 2026-10-20:
 - [OpenAI plugin skills](https://developers.openai.com/plugins/concepts/skills): skills provide workflows around MCP; the MCP server owns connections and actions.
 - [Claude Agent Skills](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview): progressive disclosure of metadata, selected instructions and optional resources.
 
-This implementation adapts that pattern to a small local model: the host selects
+The default initial tool workflow is now chosen by the model; see [Model-authored tool plans](ORCHESTRATOR_MODEL_TOOL_PLANNING.md). Within that workflow, this implementation adapts the skill pattern to a small local model: the host selects
 up to two compatible skills using the resolved user request and existing task
 routing. The model sees the short catalog and only selected instruction bodies.
 It does not spend an additional generation choosing or loading a skill. These
@@ -58,7 +58,7 @@ The resolved current user request remains the source of activation.
 ## Execution and autonomy
 
 All v1.5 profiles share `_run_v15_profile`, so standard, thinking, diagonal
-research preview and compatible artifact preview control paths use this layer. Instructions
+research preview and compatible Horizon control paths use this layer. Instructions
 remain present when browser observations are compacted. Compaction now preserves
 saved-history IDs, result indices and pagination fields so the next action can
 use actual returned records. Existing effort limits,
@@ -69,6 +69,9 @@ Routine authorized browser navigation, scrolling, filling and read-only MCP
 calls do not acquire new permission prompts. A user's review-before-submit
 boundary still applies. Kira's live MCP bridge currently supports read-only
 operations; a skill cannot enable writes or activate an unapproved connector.
+
+For RAG use `/rag`; the separate evidence gate intercepts that path before the
+v1.5 skills loop. This patch does not alter evidence approval or source policy.
 
 ## Audit and rollback
 

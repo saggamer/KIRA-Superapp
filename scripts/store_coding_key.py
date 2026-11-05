@@ -9,7 +9,7 @@ import sys
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("provider", choices=("openai", "anthropic", "gemini", "openrouter", "custom"))
+    parser.add_argument("provider", choices=("openai", "anthropic", "gemini", "deepseek", "nvidia_nim", "openrouter", "custom"))
     args = parser.parse_args()
     key = getpass.getpass(f"{args.provider} key: ").strip()
     if not key:

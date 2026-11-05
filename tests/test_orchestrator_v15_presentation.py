@@ -94,6 +94,7 @@ class PresentationControllerTests(unittest.TestCase):
         offline = PresentationController('Create a text-only PowerPoint with no images.')
         self.assertFalse(offline.needs_images)
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         self.assertFalse(brain._pptx_visuals_requested('Create a text-only PowerPoint with no images.'))
 
     def test_number_only_slide_heading_is_rejected(self):
@@ -222,6 +223,7 @@ class PresentationControllerTests(unittest.TestCase):
 
     def test_diagonal_profile_executes_only_selected_deck(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _model: None
         brain._truncate = lambda text, length=1000: str(text)[:length]
@@ -246,6 +248,7 @@ class PresentationControllerTests(unittest.TestCase):
 
     def test_diagonal_researches_before_creating_current_deck(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _model: None
         brain._truncate = lambda text, length=1000: str(text)[:length]
@@ -280,6 +283,7 @@ class PresentationControllerTests(unittest.TestCase):
 
     def test_research_evidence_reaches_slide_specialist(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _model: None
         brain._truncate = lambda text, length=1000: str(text)[:length]

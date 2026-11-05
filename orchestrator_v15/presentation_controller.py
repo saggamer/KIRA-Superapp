@@ -2,6 +2,7 @@
 import re
 import os
 from orchestrator_v15.artifact_content import requested_image_count, without_asset_paths
+from orchestrator_v15.artifact_scope import no_web_requested, no_images_requested
 
 
 PRESENTATION = re.compile(r'\b(?:pptx?|powerpoint|presentation|slide deck|slides?)\b', re.I)
@@ -54,15 +55,14 @@ class PresentationController:
         self.repairs = 0
         self.max_repairs = max_repairs
         self.actions = []
-        self.no_web = bool(re.search(r'\b(?:offline|no web|without (?:the )?(?:web|internet))\b', request, re.I))
+        self.no_web = no_web_requested(request)
         self.web_first = bool(re.search(r'\b(?:web|source)\s+(?:search|research)\s+first\b', request, re.I))
         prose_request = without_asset_paths(request)
         self.needs_current_sources = bool(re.search(
             r'\b(?:current|latest|today|recent|2026|research|sources?|citations?)\b', prose_request, re.I))
-        self.needs_images = bool(re.search(r'\b(?:images?|photos?|visuals?|pictures?|illustrations?|artwork)\b', request, re.I)) and not bool(
-            re.search(r'\b(?:no|without)\s+(?:images?|photos?|visuals?|pictures?|illustrations?|artwork)\b|\btext[ -]only\b',
-                      request, re.I))
-        self.wants_generated_images = bool(re.search(r'\bz[- ]?image\b', request, re.I) or re.search(
+        self.no_images = no_images_requested(request)
+        self.needs_images = bool(re.search(r'\b(?:images?|photos?|visuals?|pictures?|illustrations?|artwork)\b', request, re.I)) and not self.no_images
+        self.wants_generated_images = not self.no_images and bool(re.search(r'\bz[- ]?image\b', request, re.I) or re.search(
             r'\b(?:generat(?:e|ed)|creat(?:e|ed)|original|ai[- ]generated)\s+'
             r'(?:\w+\s+){0,2}(?:images?|photos?|visuals?|pictures?|illustrations?)(?![- ]rich)\b|'
             r'\b(?:images?|photos?|visuals?|pictures?|illustrations?)\s+'
@@ -98,19 +98,27 @@ class PresentationController:
         self.min_slides = min(self.min_slides, 20)
         self.exact_slides = bool(count and not re.search(r'\b(?:at least|minimum|or more)\b', request, re.I))
 
+    def image_edit_guidance(self):
+        if getattr(self,'image_backend','')=='horizon-1':
+            return ('To modify an observed local image, use IMAGE_EDIT with PATH and the original PROMPT. '
+                    'Horizon 1 MLX predicts its edit region; omit MASK, REGION and STRENGTH. '
+                    'Inspect experimental count and placement errors before claiming success.')
+        return ('To modify an observed local image, use [IMAGE_EDIT] with PATH: its observed local path, '
+                'PROMPT: a precise one-line change, optional STRENGTH: 0.1 to 0.85 (default 0.4), '
+                'and optional MASK: an observed local mask path. For adding an object, use REGION: '
+                'left, right, center, upper_left, upper_right, lower_left, or lower_right, or a MASK; '
+                'Kira then performs localized inpainting.')
+
     def guidance(self):
+        generator='Horizon 1 creativity expert' if getattr(self,'image_backend','')=='horizon-1' else 'Z-Image Turbo Q4'
         return (
             'PowerPoint task: use the user brief and preceding chat as the source of topic, audience, '
             'facts, slide count, and style. Propose one action at a time. Read supplied files with READ_FILE '
             'when needed. If current facts or requested sources are missing, use WEB_RESEARCH; for requested '
             'visuals use WEB_IMAGE_SEARCH when needed; it may return local files or candidate URLs. '
             'For original generated visuals use one [IMAGE_GENERATE] block with PROMPT: a concrete one-line image brief '
-            'and optional SEED: integer. It runs Z-Image Turbo Q4 locally and returns a PNG path. '
-            'To modify an observed local image, use [IMAGE_EDIT] with PATH: its observed local path, '
-            'PROMPT: a precise one-line change, optional STRENGTH: 0.1 to 0.85 (default 0.4), '
-            'and optional MASK: an observed local mask path. For adding an object, use REGION: '
-            'left, right, center, upper_left, upper_right, lower_left, or lower_right, or a MASK; '
-            'Kira then performs localized inpainting. '
+            f'and optional SEED: integer. It runs {generator} locally and returns a PNG path. '
+            f'{self.image_edit_guidance()} '
             'Use it only for requested original imagery, never as evidence of real-world facts. If only a source URL is available, '
             'use WEB_IMAGE_DOWNLOAD on that observed URL. Analyze a selected local image with IMAGE_ANALYZE before using it. '
             'Use supplied chart images as evidence and preserve values, units, and uncertainty. '
@@ -147,6 +155,9 @@ class PresentationController:
                 return 'Use IMAGE_GENERATE only when the user requested original generated visuals.'
             return None
         if tag == 'IMAGE_EDIT':
+            horizon = getattr(self, 'image_backend', '') == 'horizon-1'
+            if horizon and re.search(r'(?im)^\s*(?:MASK|REGION|STRENGTH)\s*:', body):
+                return 'Horizon predicts its region from PATH and PROMPT. Omit MASK, REGION and STRENGTH.'
             path = re.search(r'(?im)^\s*PATH\s*:\s*`?([^\n`]+)`?\s*$', body)
             prompt = re.search(r'(?im)^\s*PROMPT\s*:\s*(\S[^\n]{0,599})\s*$', body)
             if not path or not prompt:
@@ -169,7 +180,7 @@ class PresentationController:
                         raise ValueError
                 except ValueError:
                     return 'IMAGE_EDIT STRENGTH must be between 0.1 and 0.85.'
-            if re.search(r'\badd\s+(?:a|an|the|one)\b', prompt.group(1), re.I) and not (mask or region):
+            if not horizon and re.search(r'\badd\s+(?:a|an|the|one)\b', prompt.group(1), re.I) and not (mask or region):
                 return 'Adding an object needs REGION or an observed MASK for localized inpainting.'
             if not self.wants_edited_images:
                 return 'Use IMAGE_EDIT only when the user requested an image change.'

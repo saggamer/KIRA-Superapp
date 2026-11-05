@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 from actions import KiraActionsMixin
 from coding import KiraCodingMixin
 from memory import SmartMemoryStore
+from evidence_rag_runtime import EvidenceRAGMixin
 from voice import KiraVoiceMixin
 from kira_live.policy import live_text_system_instruction, tree_execution_instruction
 from kira_live.tree_memory import KiraTreeMemory
@@ -32,7 +33,7 @@ from kira_live.public_guard import guard_public_reply, tools_disallowed
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
+class KiraBrain(EvidenceRAGMixin, KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
     def __init__(self):
         # DUAL BRAINS RESTORED
         self.app_root = BASE_DIR
@@ -102,6 +103,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         self.ui_warmup_done = False
         self.ui_warmup_lock = threading.Lock()
         self.app_started_at = time.time()
+        self.v15_model_tool_planning = os.environ.get('KIRA_V15_MODEL_TOOL_PLANNING', 'on').lower() not in {'off', '0', 'false'}
         self.last_personalization_update = 0
         self.last_quick_pathway_update = 0
         self.agentic_step_timeout_seconds = int(os.environ.get("KIRA_AGENTIC_STEP_TIMEOUT", "38"))
@@ -502,6 +504,24 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
 
     def _evict_and_load(self, target_brain):
         target_brain = str(target_brain or "orchestrator").lower()
+        if sys.platform.startswith("linux"):
+            if target_brain != "orchestrator":
+                raise RuntimeError("Linux preview supports the Orchestrator model-server connection. Native KIRA Live, Horizon MLX and v1.5 adapters require macOS.")
+            from linux_model_worker import server_config
+            server_config()
+            if self.current_brain == target_brain and self.model_worker_process is not None and self.model_worker_process.poll() is None:
+                return
+            self._stop_model_worker()
+            self.active_model = self.active_tokenizer = self.current_brain = None
+            try:
+                self._start_model_worker(target_brain)
+                self._model_worker_request({"type": "load", "brain": target_brain}, timeout=self.model_worker_load_timeout)
+                self.current_brain = target_brain
+                self.active_model = self.active_tokenizer = {"isolated_worker": True, "backend": "model_server"}
+            except Exception:
+                self._stop_model_worker()
+                raise
+            return
         v15_manifest_path = os.environ.get("KIRA_V15_MANIFEST_PATH") or os.path.join(
             self.app_root, "training_runs", "orchestrator_v15",
             "gated_control_browser_20261008", "manifest.json")
@@ -603,7 +623,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         self.model_worker_stderr_lines = []
         self.model_worker_last_error = ""
 
-        worker_path = os.path.join(self.app_root, "model_worker.py")
+        worker_path = os.path.join(self.app_root, "linux_model_worker.py" if sys.platform.startswith("linux") else "model_worker.py")
         if not os.path.isfile(worker_path):
             raise FileNotFoundError(f"Isolated model worker is missing: {worker_path}")
 
@@ -722,7 +742,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 self._mark_model_worker_dead(f"Could not write to model worker: {e}")
                 raise RuntimeError(self.model_worker_last_error) from e
 
-            deadline = time.time() + timeout
+            deadline = time.monotonic() + timeout
             while True:
                 if request_id in self.model_worker_pending_responses:
                     response = self.model_worker_pending_responses.pop(request_id)
@@ -733,7 +753,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                     self._mark_model_worker_dead(reason)
                     raise RuntimeError(self.model_worker_last_error or reason)
 
-                remaining = deadline - time.time()
+                remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     reason = f"Model worker timed out after {timeout}s during {request.get('type', 'request')}."
                     self._mark_model_worker_dead(reason)
@@ -944,17 +964,15 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         )
 
     def _brain_display_name(self, target_brain):
-        if str(target_brain or "").lower() == "kira":
-            return "KIRA Live 1"
-        if str(target_brain or "").lower() == "orchestrator_v15":
-            return "Orchestrator v1.5"
-        if str(target_brain or "").lower() == "orchestrator_v15_thinking":
-            return "Orchestrator v1.5 Thinking Preview"
-        if str(target_brain or "").lower() == "orchestrator_v15_orchestral_preview":
-            return "Diagonal Orchestral Research Preview"
-        if str(target_brain or "").lower() == "orchestrator_v15_ppt_preview":
-            return "Horizon 1 Preview"
-        return "Orchestrator V1"
+        name = str(target_brain or '').lower()
+        if name == 'kira':
+            return 'Kira Live 1'
+        if name in {'orchestrator_v15', 'orchestrator_v15_thinking',
+                    'orchestrator_v15_orchestral_preview'}:
+            return 'Orchestrator v1.5'
+        if name == 'orchestrator_v15_ppt_preview':
+            return 'Horizon 1'
+        return 'Orchestrator v1'
 
     def _select_brain_for_mode(self, mode, selected_model):
         mode = str(mode or "").lower()
@@ -983,8 +1001,9 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         from orchestrator_v15.presentation_controller import PresentationController, action_tag, is_presentation_request
         from orchestrator_v15.kira_ppt_candidate import KiraPPTCandidate
         from orchestrator_v15.kira_document_candidate import KiraDocumentCandidate, document_kind_for_request
+        from orchestrator_v15.kira_image_candidate import KiraImageCandidate, is_image_request
         from orchestrator_v15.browser_action_repair import repair_observed_action
-        from orchestrator_v15.mcp_policy import (apply_requested, live_call_requested,
+        from orchestrator_v15.mcp_policy import (apply_requested, draft_requested, live_call_requested,
                                                    normalize_live_call, broaden_empty_search)
         from orchestrator_v15.agentic_action_repair import repair_action, direct_result
         from orchestrator_v15.coding_agent_controller import CodingAgentController, is_coding_agent_request
@@ -993,20 +1012,41 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         from orchestrator_v15.skill_runtime import skill_context
 
         budget = LEVELS[effort_name]
-        document_kind = document_kind_for_request(request) if ppt_candidate else None
+        document_kind = document_kind_for_request(request)
         presentation_task = is_presentation_request(request) and not document_kind
-        artifact_task = presentation_task or bool(document_kind)
-        browser_task = not artifact_task and channel_for_request(request) == "browser"
+        image_task = bool(ppt_candidate and not presentation_task and not document_kind and is_image_request(request))
+        artifact_task = presentation_task or bool(document_kind) or image_task
+        tool_plan = None
+        planning_seconds = 0
+        if not artifact_task and getattr(self, 'v15_model_tool_planning', True):
+            from orchestrator_v15.tool_planner import parse_plan
+            self._evict_and_load('orchestrator_v15')
+            planning_started = time.monotonic()
+            try:
+                tool_plan = parse_plan(self._model_worker_request({
+                    'type': 'plan_v15_tools', 'user_request': request,
+                    'mcp_available': os.path.isfile(getattr(self, 'mcp_config_targets', {}).get('kira_app', '')),
+                }, timeout=25))
+            except (RuntimeError, ValueError, TypeError):
+                return 'Orchestrator could not produce a valid tool plan; no action was executed. Please retry.'
+            self.response_queue.put({'type': 'status', 'content': 'Tool plan: ' + tool_plan['purpose'],
+                                     'chat_id': chat_id})
+            planning_seconds = time.monotonic() - planning_started
+        self.last_v15_tool_plan = dict(tool_plan) if tool_plan else None
+        browser_task = not artifact_task and (tool_plan['route'] == 'browser' if tool_plan
+                                             else channel_for_request(request) == 'browser')
+        mcp_tool_intent = (tool_plan['route'] == 'mcp' if tool_plan else live_call_requested(request))
         coding_agents = (CodingAgentController(request) if
-                         not browser_task and not artifact_task and is_coding_agent_request(request)
+                         not browser_task and not artifact_task and
+                         (not tool_plan or tool_plan['route'] == 'control') and is_coding_agent_request(request)
                          else None)
         draft_path_match = re.search(r'`([^`]+\.json)`', request)
-        if (not browser_task and draft_path_match and
+        if (not browser_task and (not tool_plan or tool_plan['route'] != 'answer') and draft_path_match and
                 re.search(r'\b(?:active|connected)\b', request, re.I) and
                 re.search(r'\b(?:do not|don\'t|without)\b.{0,60}\bapply\b', request, re.I)):
             return self.describe_mcp_draft_status(draft_path_match.group(1))
         kira_mcp_path = getattr(self, 'mcp_config_targets', {}).get('kira_app', '')
-        if not browser_task and live_call_requested(request) and not os.path.isfile(kira_mcp_path):
+        if not browser_task and mcp_tool_intent and not os.path.isfile(kira_mcp_path):
             return ('A live MCP tool call is not available in this Kira v1.5 profile. '
                     'Connect an approved server to the Kira app target first; no server tool ran.')
         orchestral_candidate = bool(orchestral_candidate and browser_task and effort_name == 'diagonal')
@@ -1018,12 +1058,16 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             "")
         hint = (f"This request uses {effort_name} effort: at most {budget.rounds} decisions, "
                 f"{budget.tool_calls} tool calls, and {budget.branches} candidate proposal(s) per browser decision. "
-                "Available Kira tools include BROWSER_TOOL, MCP_DISCOVER, APP_LIST, "
-                "APP_INTEGRATION, SUBAGENT_REGISTRY and SUBAGENT_TASK. Return exactly one "
+                + ("Available tool for this browser task: BROWSER_TOOL. " if browser_task else
+                   "Available Kira tools include BROWSER_TOOL, MCP_DISCOVER, APP_LIST, "
+                   "APP_INTEGRATION, SUBAGENT_REGISTRY and SUBAGENT_TASK. ") + "Return exactly one "
                 "closed action block when a tool is needed. Kira executes the selected block "
                 "and supplies the result. Do not claim execution before a result. "
                 "Ask permission only when Kira's action handler requires it.")
-        hint += (' For MCP configuration, MCP_DISCOVER reads configured targets and drafts. '
+        if tool_plan and tool_plan['route'] == 'answer':
+            hint = 'The tool plan selected a direct answer. Respond to the user without any tools or action blocks.'
+        if not browser_task and (not tool_plan or tool_plan['route'] != 'answer'):
+            hint += (' For MCP configuration, MCP_DISCOVER reads configured targets and drafts. '
                  'MCP_DRAFT needs NAME, COMMAND, ARGS_JSON, and ENV_JSON; it creates an inactive '
                  'local draft and never installs or connects a server. MCP_BOOTSTRAP creates an '
                  'inactive filesystem draft only when requested. MCP_APPLY needs an observed '
@@ -1059,7 +1103,10 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 'A headless BROWSER_TOOL tab does not satisfy a visible desktop-browser request. '
                 'Report success only after Kira returns OPEN evidence.'
             )
-        skills = skill_context(request, browser_task=browser_task, artifact_task=artifact_task)
+        skills = skill_context('' if tool_plan and tool_plan['route'] == 'answer' else request,
+                               browser_task=browser_task, artifact_task=artifact_task)
+        if tool_plan and tool_plan['route'] == 'mcp':
+            skills = skill_context('MCP workflow: ' + request, browser_task=False)
         self.last_v15_skill_audit = {
             'active': list(skills.active), 'versions': list(skills.audit),
             'errors': list(skills.errors), 'context_chars': len(skills.prompt),
@@ -1086,13 +1133,21 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             request, context=artifact_context, max_repairs=budget.replans)
             if presentation_task else
             KiraDocumentCandidate(request, kind=document_kind, context=artifact_context,
-                                  max_repairs=budget.replans) if document_kind else None)
+                                  max_repairs=budget.replans) if document_kind else
+            KiraImageCandidate(request, context=artifact_context, max_repairs=budget.replans)
+            if image_task else None)
         if deck_controller:
+            deck_controller.image_backend = 'horizon-1' if ppt_candidate else 'z-image'
             messages[0]['content'] += '\n' + deck_controller.guidance()
+            if ppt_candidate:
+                messages[0]['content'] += ('\nIMAGE_EDIT uses Horizon 1 MLX. Supply only PATH, PROMPT and optional SEED. '
+                    'It predicts the edit region itself. Omit MASK, REGION and STRENGTH. '
+                    'This is experimental: inspect count and placement errors before claiming success. '
+                    'IMAGE_GENERATE uses the Horizon creativity expert without a source image.')
         messages.append({"role": "user", "content": request})
         live_mcp_server = ''
         live_mcp_tools = set()
-        if not browser_task and live_call_requested(request) and kira_mcp_path:
+        if not browser_task and mcp_tool_intent and kira_mcp_path:
             try:
                 with open(kira_mcp_path, 'r', encoding='utf-8') as handle:
                     configured = json.load(handle)
@@ -1117,9 +1172,9 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         artifact_seconds = (1800 if ppt_candidate and deck_controller and
                             (deck_controller.wants_generated_images or deck_controller.wants_edited_images)
                             else budget.seconds)
-        deadline = time.monotonic() + artifact_seconds
+        deadline = time.monotonic() + max(0, artifact_seconds - planning_seconds)
         last_result = ""
-        generated_tokens = 0
+        generated_tokens = 96 if tool_plan else 0
         invalid_control_retries = 0
         if orchestral_candidate and controller.requested_urls:
             # The user already supplied the destination. Navigation is a
@@ -1340,7 +1395,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                                  and not deck_controller.research_observed
                                  and not deck_controller.context_has_sources)
             proposal_count = budget.branches if (
-                browser_task or deck_research or (artifact_task and effort_name == "diagonal")
+                browser_task or deck_research or (artifact_task and effort_name in {'high', 'diagonal'})
             ) else 1
             if ppt_candidate and artifact_task:
                 proposal_count = 1
@@ -1348,7 +1403,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             fast_browser = (browser_step_budget(request, controller.observations)
                             if browser_task and not candidate_step else None)
             if fast_browser:
-                proposal_count = fast_browser['branches']
+                proposal_count = min(budget.branches, fast_browser['branches'])
             remaining_tokens = budget.total_tokens - generated_tokens
             memo_reserve = 128 if structured_thinking and not orchestral_candidate else 0
             if remaining_tokens < memo_reserve + 32 * proposal_count:
@@ -1356,6 +1411,9 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             response = self._model_worker_request({
                 "type": "propose_v15", "user_request": request, "messages": messages,
                 "skill_audit": self.last_v15_skill_audit,
+                "tool_channel": ('presentation' if artifact_task else
+                                 ('browser' if browser_task else 'coding' if coding_agents else
+                                  'mcp' if mcp_tool_intent else 'control') if tool_plan else None),
                 "branches": proposal_count,
                 "diagonal_orchestral_candidate": candidate_step,
                 "presentation_task": artifact_task,
@@ -1367,7 +1425,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                                   (remaining_tokens - memo_reserve) // proposal_count),
             }, timeout=min(120, max(20, int(deadline - time.monotonic()))))
             proposals = [str(item).strip() for item in response.get("proposals", [])]
-            if ppt_candidate and deck_controller:
+            if (ppt_candidate or document_kind) and deck_controller:
                 proposals = [deck_controller.normalize(item) for item in proposals]
             generated_tokens += int(response.get("memo_tokens", 0))
             generated_tokens += sum(int(value) for value in response.get("token_counts", []))
@@ -1450,6 +1508,10 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                     if image_path:
                         answer = with_screenshot(answer, image_path)
                 if deck_controller and deck_controller.verified_path:
+                    if image_task:
+                        return 'Image output created and analyzed.\n' + '\n'.join(
+                            f'Image: `{path}`' for path in sorted(
+                                deck_controller.output_image_paths.intersection(deck_controller.analyzed_image_paths)))
                     artifact_kind = ('PowerPoint' if deck_controller.verified_path.lower().endswith('.pptx')
                                      else 'PDF' if deck_controller.verified_path.lower().endswith('.pdf')
                                      else 'Word document')
@@ -1460,6 +1522,22 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                         answer += '\n' + quality.group(0)
                 return answer
             tag, _fields = parsed
+            if tool_plan and tool_plan['route'] == 'answer':
+                invalid_control_retries += 1
+                if invalid_control_retries > budget.replans:
+                    return 'The answer-only plan proposed an unexpected tool; no action was executed.'
+                messages.extend([{'role': 'assistant', 'content': answer},
+                                 {'role': 'user', 'content': 'Your plan selected answer without tools. Answer the request directly; do not emit an action block.'}])
+                continue
+            if tag in {'MCP_DRAFT', 'MCP_BOOTSTRAP'} and not draft_requested(request):
+                invalid_control_retries += 1
+                correction = ('The user did not request MCP connector configuration. Do not create '
+                              'a draft. Continue the current user task using its relevant tools.')
+                if invalid_control_retries > budget.replans:
+                    return 'Orchestrator stopped an unrelated MCP setup proposal; no connector draft was created.'
+                messages.extend([{'role': 'assistant', 'content': answer},
+                                 {'role': 'user', 'content': correction}])
+                continue
             if (tag == 'BROWSER_TOOL' and not browser_task and
                     _fields.get('ACTION', '').upper() == 'MCP_DISCOVER'):
                 answer = '[MCP_DISCOVER]\nTARGET: configs\n[/MCP_DISCOVER]'
@@ -1519,7 +1597,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 if not server or not kira_mcp_path:
                     return 'No approved Kira MCP app server was selected; no tool ran.'
                 if tag == 'MCP_CALL':
-                    if not live_call_requested(request):
+                    if not mcp_tool_intent:
                         return 'The current user request did not ask to use an MCP tool; no tool ran.'
                     try:
                         arguments = json.loads(_fields.get('ARGS_JSON', '{}'))
@@ -2710,6 +2788,8 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             chat_id = chat["id"]
 
         self.active_chat_id = chat_id
+        if self._handle_evidence_rag_prompt(raw_prompt, mode, chat_id, selected_model):
+            return
         task_prompt = self._resolve_contextual_task_prompt(raw_prompt, chat_id)
         routing_prompt = task_prompt
         task_attachments = self._normalize_task_attachments(task.get("attachments", []), chat_id)
@@ -2724,6 +2804,13 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         handled_ui = self._handle_ui_control_prompt(raw_prompt, chat_id)
         if handled_ui:
             return
+
+        if selected_model == 'orchestrator_v15_ppt_preview':
+            from orchestrator_v15.horizon_image_tool import handle_direct_edit,handle_direct_generate
+            if handle_direct_generate(self,raw_prompt,task_attachments,chat_id,user_chat_prompt):
+                return
+            if handle_direct_edit(self,raw_prompt,task_attachments,chat_id,user_chat_prompt):
+                return
 
         force_agentic_ai_review = routing_prompt.lower().startswith((
             "/virus", "/malware", "/safety-scan", "/safetyscan",
@@ -2864,16 +2951,17 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         target_brain = self._select_brain_for_mode(mode, selected_model)
         if target_brain in {"orchestrator_v15", "orchestrator_v15_thinking",
                             "orchestrator_v15_orchestral_preview", "orchestrator_v15_ppt_preview"}:
-            from orchestrator_v15.effort import normalize_effort
-            orchestral_preview = target_brain == "orchestrator_v15_orchestral_preview"
-            ppt_preview = target_brain == "orchestrator_v15_ppt_preview"
-            effort_name = "diagonal" if orchestral_preview or ppt_preview else normalize_effort(task.get("thinking_effort"))
+            from orchestrator_v15.effort import profile_thinking
+            thinking = profile_thinking(target_brain, task.get('thinking_effort'))
+            effort_name = thinking['effort']
             self._append_chat_message(chat_id, "user", user_chat_prompt, "User")
+            previous_image_backend = getattr(self, '_image_edit_backend', None)
+            self._image_edit_backend = 'horizon-1' if thinking['artifacts'] else 'z-image'
             try:
                 answer = self._run_v15_profile(
                     task_prompt, chat_id, effort_name,
-                    structured_thinking=target_brain == "orchestrator_v15_thinking",
-                    orchestral_candidate=orchestral_preview, ppt_candidate=ppt_preview)
+                    structured_thinking=thinking['structured'],
+                    orchestral_candidate=thinking['orchestral'], ppt_candidate=thinking['artifacts'])
                 answer = self._polish_final_answer(self._strip_private_reasoning(answer)).strip()
                 if not answer:
                     answer = "Orchestrator v1.5 stopped without a verified answer."
@@ -2885,6 +2973,8 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 self._log_agentic_event("v15_profile_error", {"error": str(exc), "chat_id": chat_id})
                 self.response_queue.put({"type": "error", "content": f"Orchestrator v1.5: {exc}",
                                          "chat_id": chat_id})
+            finally:
+                self._image_edit_backend = previous_image_backend
             return
         if target_brain == "kira":
             council_enabled = False
@@ -4303,6 +4393,9 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             timeout_seconds = max(timeout_seconds, 135)
         if str(current_output or '').lstrip().startswith(('[IMAGE_GENERATE]', '[IMAGE_EDIT]')):
             timeout_seconds = max(timeout_seconds, 620)
+        if (getattr(self, '_image_edit_backend', '') == 'horizon-1' and
+                str(current_output or '').lstrip().startswith(('[IMAGE_EDIT]','[IMAGE_GENERATE]'))):
+            timeout_seconds = max(timeout_seconds, 1220)
 
         def run_bridge():
             scope_token = None
@@ -6894,6 +6987,24 @@ PUBLIC STYLE:
             "message": "Plugin registry updated. This screen does not execute arbitrary plugin code.",
         }
 
+    def open_training_space(self):
+        records = self._external_plugin_records()
+        plugin = next((p for p in records if p.get("id") == "kira-training-space"), None)
+        if not plugin or not plugin.get("enabled") or not plugin.get("healthy"):
+            return {"ok": False, "error": "Enable the installed Kira Training Space plugin first."}
+        try:
+            import importlib.util
+            root = os.path.dirname(self.plugins_workspace)
+            path = os.path.join(self.plugins_workspace, "kira-training-space", "plugin.py")
+            if os.path.islink(path):
+                return {"ok": False, "error": "Training Space launcher must be a local file."}
+            spec = importlib.util.spec_from_file_location("kira_training_launcher", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module.launch(root)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def choose_plugin_manifest(self):
         try:
             paths = webview.windows[0].create_file_dialog(
@@ -7066,7 +7177,7 @@ PUBLIC STYLE:
     def open_integration_folder(self, kind="mcp"):
         path = self.plugins_workspace if str(kind).lower() == "plugins" else self.mcp_workspace
         try:
-            subprocess.run(["open", path], check=True, timeout=8)
+            subprocess.run(["xdg-open" if sys.platform.startswith("linux") else "open", path], check=True, timeout=8)
             return {"ok": True, "path": path}
         except Exception as exc:
             return {"ok": False, "path": path, "error": str(exc)}
@@ -7378,6 +7489,9 @@ class LazyKiraAPI:
 
     def set_plugin_enabled(self, plugin_id, enabled):
         return self._call("set_plugin_enabled", plugin_id, enabled)
+
+    def open_training_space(self):
+        return self._call("open_training_space")
 
     def choose_plugin_manifest(self):
         return self._call("choose_plugin_manifest")

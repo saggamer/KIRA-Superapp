@@ -32,6 +32,20 @@ BROWSER_HISTORY = re.compile(
     r"\bwhat (?:did|have|has|had) (?:you|we|kira) (?:search(?:ed)?|read|visit(?:ed)?)\b", re.I)
 
 
+def public_search_requested(request):
+    """Natural web lookup phrasing, excluding explicit local/app retrieval."""
+    request = str(request or '')
+    if re.search(r'\b(?:files?|folders?|directories|codebase|repository|repositories|'
+                 r'chat history|memory|my notes|connected apps?|mcp tools?|mcp connectors?|'
+                 r'app integration|configuration targets?|installed apps?|available apps?|'
+                 r'registered agents?)\b', request, re.I):
+        return False
+    return bool(re.match(
+        r'^\s*(?:(?:please|can you|could you|would you)\s+)?'
+        r'(?:search\b|look\s+up\b|find\s+(?:me\s+)?(?:the\s+)?(?:best|top)\b)',
+        request, re.I))
+
+
 def manifest_root(manifest_path, manifest, runtime_root):
     """A bundled manifest resolves assets beside itself; legacy paths keep their root."""
     return (Path(manifest_path).resolve().parent if manifest.get('bundle_format') == 'kira-v15-v1'
@@ -54,6 +68,8 @@ def channel_for_request(request):
                 request, re.I):
         return 'browser'
     if BROWSER_HISTORY.search(request):
+        return 'browser'
+    if public_search_requested(request):
         return 'browser'
     if APP_CONTROL.search(request):
         return 'control'
@@ -90,15 +106,21 @@ class AdapterRouter:
         self.architecture = architectures[0]
         self.active = None
 
-    def activate(self, model, request):
+    def activate(self, model, request, channel=None):
         from .presentation_controller import is_presentation_request
-        channel = ('presentation' if 'presentation' in self.paths and
-                   is_presentation_request(request) else channel_for_request(request))
-        if channel == 'control' and 'coding' in self.paths:
+        planned = channel is not None
+        if planned:
+            if channel not in {'control', 'browser', 'mcp', 'coding', 'presentation'}:
+                raise ValueError('Unknown planned adapter channel')
+            channel = channel if channel in self.paths else 'control'
+        else:
+            channel = ('presentation' if 'presentation' in self.paths and
+                       is_presentation_request(request) else channel_for_request(request))
+        if not planned and channel == 'control' and 'coding' in self.paths:
             from .coding_agent_controller import is_coding_agent_request
             if is_coding_agent_request(request):
                 channel = 'coding'
-        if channel == 'control' and 'mcp' in self.paths and MCP_CONTROL.search(request):
+        if not planned and channel == 'control' and 'mcp' in self.paths and MCP_CONTROL.search(request):
             channel = 'mcp'
         if channel != self.active:
             import mlx.core as mx

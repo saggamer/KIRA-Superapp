@@ -402,6 +402,25 @@ def main():
                       "content": sanitize_generated_content(content)})
                 continue
 
+            if request_type == 'plan_v15_tools':
+                if current_brain != 'orchestrator_v15' or v15_router is None:
+                    raise RuntimeError('Orchestrator v1.5 is not loaded.')
+                from mlx_lm import generate
+                from orchestrator_v15.tool_planner import SYSTEM as PLAN_SYSTEM
+                v15_router.activate(model, '', channel='control')
+                plan_messages = [
+                    {'role': 'system', 'content': PLAN_SYSTEM},
+                    {'role': 'user', 'content': 'Connected MCP configuration available: ' +
+                     str(bool(request.get('mcp_available'))) + '\nCurrent user request:\n' +
+                     str(request.get('user_request', ''))[:6000]},
+                ]
+                prompt = tokenizer.apply_chat_template(plan_messages, tokenize=False,
+                                                       add_generation_prompt=True, enable_thinking=False)
+                text = generate(model, tokenizer, prompt=prompt, max_tokens=96,
+                                sampler=create_sampler(0), verbose=False)
+                send({'id': request_id, 'ok': True, 'content': sanitize_generated_content(text)})
+                continue
+
             if request_type == "propose_v15":
                 if current_brain != "orchestrator_v15" or v15_router is None:
                     raise RuntimeError("Orchestrator v1.5 is not loaded.")
@@ -411,7 +430,7 @@ def main():
                 from orchestrator_v15.presentation_controller import PRESENTATION_BRANCH_LENSES
                 from orchestrator_v15.structured_thinking import MEMO_INSTRUCTION, parse_memo, memo_prompt
 
-                v15_router.activate(model, str(request.get("user_request", "")))
+                v15_router.activate(model, str(request.get("user_request", "")), channel=request.get('tool_channel'))
                 if request.get("diagonal_orchestral_candidate"):
                     from orchestrator_v15.diagonal_orchestral_candidate import generate_branches
 

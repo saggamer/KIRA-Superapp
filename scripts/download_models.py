@@ -8,6 +8,7 @@ import sys
 import json
 import shutil
 import urllib.request
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -101,18 +102,38 @@ def download_voice():
             temporary.unlink(missing_ok=True)
 
 
+def download_horizon():
+    from horizon_mlx.catalog import (BUNDLE_REPO, BUNDLE_REVISION, BASE_REPO, BASE_REVISION,
+                                    paths, validate_bundle, validate_base)
+    from horizon_mlx.install import ensure_runtime
+    ensure_runtime(APP_ROOT)
+    bundle,base=paths(APP_ROOT)
+    for repo,revision,target,validate in [(BUNDLE_REPO,BUNDLE_REVISION,bundle,validate_bundle),
+                                         (BASE_REPO,BASE_REVISION,base,validate_base)]:
+        try:validate(target)
+        except (OSError,ValueError,KeyError):
+            print(f'Downloading Horizon: {repo}@{revision}',flush=True)
+            download(repo,target,revision=revision)
+            validate(target)
+        print(f'Horizon ready: {target}',flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--orchestrator-only", action="store_true")
     parser.add_argument("--whisper-only", action="store_true")
-    parser.add_argument("--all", action="store_true", help="Also fetch Live checkpoints, Qwen ASR, portable Whisper and Kokoro voice assets.")
+    parser.add_argument('--horizon-only',action='store_true',help='Set up Horizon 1 MLX and its pinned 4-bit image base (about 4.6 GB).')
+    parser.add_argument("--all", action="store_true", help="Also fetch Horizon, Live checkpoints, Qwen ASR, portable Whisper and Kokoro voice assets.")
     args = parser.parse_args()
-    if args.orchestrator_only and args.whisper_only:
-        parser.error("Choose at most one of --orchestrator-only and --whisper-only")
-    if args.all and (args.orchestrator_only or args.whisper_only):
+    if sum([args.orchestrator_only,args.whisper_only,args.horizon_only])>1:
+        parser.error('Choose only one single-model option')
+    if args.all and (args.orchestrator_only or args.whisper_only or args.horizon_only):
         parser.error("--all cannot be combined with a single-model option")
 
     try:
+        if args.horizon_only:
+            download_horizon()
+            return
         if not args.whisper_only:
             target = APP_ROOT / "models" / "orchestrator_v1_fused"
             target.mkdir(parents=True, exist_ok=True)
@@ -125,6 +146,8 @@ def main():
             print(f"Downloading {WHISPER_REPO} to the Hugging Face cache", flush=True)
             path = download(WHISPER_REPO)
             print(f"Whisper ready: {path}", flush=True)
+        if args.all or not (args.orchestrator_only or args.whisper_only):
+            download_horizon()
         if args.all:
             download_live()
             download_voice()

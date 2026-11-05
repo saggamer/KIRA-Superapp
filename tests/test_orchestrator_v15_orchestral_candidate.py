@@ -155,10 +155,10 @@ class OrchestralCandidateTests(unittest.TestCase):
                                    [{'role': 'user', 'content': YOUTUBE_REQUEST}],
                                    batch_generate_fn=batch, evaluator_generate_fn=judge)
         chosen, audit = select_branch(result, ThinkingController(YOUTUBE_REQUEST, diagonal_level=True))
-        self.assertEqual(calls, [('batch', 3)])
+        self.assertEqual(calls, [('batch', 3), ('judge', 1)])
         self.assertEqual(chosen, valid)
         self.assertEqual(audit['valid'], 2)
-        self.assertEqual(audit['selected_index'], 0)
+        self.assertEqual(audit['selected_index'], 2)
 
     def test_unsupported_browser_action_is_discarded_before_evaluation(self):
         raw = {'evidence': 'N/A', 'plan': 'Find app.', 'risk': '',

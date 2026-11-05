@@ -711,6 +711,12 @@ class KiraVoiceMixin:
                 lock.release()
 
     def get_kira_live_status(self):
+        import sys
+        if sys.platform.startswith("linux"):
+            return {"ok": False, "ui_ready": True, "conversation_ready": False,
+                    "state": "unsupported", "name": "KIRA Live 1", "checks": [],
+                    "blockers": ["Native KIRA Live requires MLX on Apple Silicon; it is unavailable in the Linux preview."],
+                    "prompt_handoffs": False, "private_reasoning_visible": False}
         try:
             from kira_live.readiness import kira_live_readiness
 

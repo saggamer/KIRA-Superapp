@@ -35,6 +35,9 @@ class KiraDocumentCandidate(PresentationController):
                  'TITLE: specific title, then repeated HEADING: and PARAGRAPH: fields, with '
                  'BULLET:, IMAGE: analyzed local path, and LINK: label | direct URL when useful')
         return (
+            'Native PDF and Word generation are available in this Kira profile. '
+            'Use the native document tool instead of claiming you cannot create files. '
+            'Write reader-facing information, not task instructions, internal tool budgets or generation restrictions. '
             f'Kira {self.kind.upper()} artifact task. Return one action at a time. Read supplied files '
             'before drafting from them. Research current facts with WEB_RESEARCH when requested. '
             'Use WEB_IMAGE_SEARCH for sourced visuals, IMAGE_GENERATE for requested original visuals, or IMAGE_EDIT to change an observed local image. Download candidate URLs when needed, '
@@ -53,6 +56,12 @@ class KiraDocumentCandidate(PresentationController):
         )
 
     def normalize(self, answer):
+        # A duplicated closing tag at the start is an unambiguous formatting
+        # error, not a different requested action. Preserve its body verbatim.
+        raw = str(answer).strip()
+        close = f'[/{self.output_tag}]'
+        if raw.startswith(close) and raw.endswith(close) and raw.count(close) == 2 and f'[{self.output_tag}]' not in raw:
+            answer = f'[{self.output_tag}]' + raw[len(close):]
         tag, body = action_tag(answer)
         if tag not in {'NATIVE_PDF', 'NATIVE_DOCX'}:
             return answer

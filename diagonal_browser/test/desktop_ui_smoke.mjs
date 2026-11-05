@@ -68,4 +68,11 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ desktopUI: 'passed', checks: ['wide/compact toolbar', 'recent search restore', 'live result refresh', 'reopen closed tab', 'native view alignment', 'tool panels', 'Escape dismissal'], screenshots: ['artifacts/diagonal-ui-home.png', 'artifacts/diagonal-ui-compact.png'] }));
+} catch (error) {
+  if (app) {
+    const page = await app.firstWindow();
+    console.error('Desktop notification:', await page.locator('#toast').innerText().catch(() => 'unavailable'));
+    console.error('Desktop pages:', await app.evaluate(({ webContents }) => webContents.getAllWebContents().map(item => ({ url: item.getURL(), loading: item.isLoading(), title: item.getTitle() }))));
+  }
+  throw error;
 } finally { await app?.close(); await new Promise(resolve => server.close(resolve)); await rm(profile, { recursive: true, force: true }); }

@@ -266,6 +266,7 @@ function render(next) {
   $('#back').disabled = !tab?.canGoBack;
   $('#forward').disabled = !tab?.canGoForward;
   $('#reload').disabled = !tab?.url && !tab?.searchResults;
+  $('#inspect').disabled = !!tab?.loading;
   $('#load-progress').hidden = !tab?.loading;
   let context = 'Ready to explore';
   if (tab?.searchResults) context = tab.searchResults.savedAt ? 'Saved search · History' : `${tab.searchResults.mode === 'images' ? 'Image' : 'Web'} results · DuckDuckGo`;

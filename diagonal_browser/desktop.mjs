@@ -184,6 +184,7 @@ async function navigate(input, id = activeId) {
   tab.searchResults = null;
   tab.url = url;
   tab.title = new URL(url).hostname;
+  tab.loading = true;
   const view = attachView(tab);
   if (id === activeId) showActive();
   await view.webContents.loadURL(url);
@@ -339,9 +340,10 @@ async function openPanel(name) {
   if (recording) throw new Error('Stop recording before opening a panel');
   if (name === 'inspect') {
     const tab = current();
+    const page = tab?.view ? await tab.view.webContents.executeJavaScript(`(${extractPage.toString()})()`) : null;
     inspection = tab?.view ? {
-      tabId: tab.id, urlInfo: inspectUrl(tab.view.webContents.getURL()),
-      page: await tab.view.webContents.executeJavaScript(`(${extractPage.toString()})()`),
+      tabId: tab.id, urlInfo: inspectUrl(page.url || tab.url),
+      page,
       blockedRequests: tab.blocked,
     } : null;
   }

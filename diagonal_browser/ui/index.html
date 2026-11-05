@@ -14,6 +14,7 @@
       <div class="tabs" id="tabs" role="tablist" aria-label="Browser tabs"></div>
       <button class="new-tab" id="new-tab" title="New tab" aria-label="New tab">+</button>
       <div class="page-context" id="page-context" title="Current page"><span class="context-dot"></span><span id="page-context-label">Ready to explore</span></div>
+      <button id="kira-toggle" class="kira-toggle" aria-label="Kira AI mode" aria-expanded="false" aria-controls="kira-popup" hidden><span aria-hidden="true">✦</span> Kira</button>
     </div>
     <div class="navigation-row">
       <div class="navigation-controls" role="group" aria-label="Navigation">
@@ -84,6 +85,15 @@
       <div class="image-viewer-info"><div><h2 id="image-viewer-title"></h2><p id="image-viewer-source"></p></div><div class="image-viewer-actions"><button id="image-copy">Copy image URL</button><button id="image-original">View original ↗</button><button id="image-source">Visit source ↗</button></div></div>
     </div>
   </div>
+  <aside id="kira-popup" class="kira-popup" role="dialog" aria-label="Kira AI mode" hidden>
+    <div class="kira-header"><div><h2>✦ Kira</h2><p id="kira-model">Your browsing companion</p></div><button id="kira-close" aria-label="Close Kira">×</button></div>
+    <div class="kira-scope"><span class="context-dot"></span><span id="kira-scope">Current page access</span></div>
+    <div id="kira-messages" class="kira-messages" aria-live="polite"><div class="kira-welcome"><span>✦</span><h3>A little help, right here.</h3><p>Ask about this page or let Kira use it for you. Opening another tab always needs your permission.</p><div class="kira-suggestions"><button data-prompt="Summarize this page and its key points.">Summarize this page</button><button data-prompt="Help me find what I need on this website.">Help me explore</button></div></div></div>
+    <section id="kira-permission" class="kira-permission" aria-label="New tab permission" hidden><strong>Open a new tab?</strong><p id="kira-permission-detail"></p><small id="kira-permission-reason"></small><div><button id="kira-deny">Stay here</button><button id="kira-allow">Allow once</button></div></section>
+    <div class="kira-status-row"><span id="kira-status" role="status">Ready</span><button id="kira-stop" hidden>Stop</button></div>
+    <form id="kira-form" class="kira-composer"><label for="kira-input" class="kira-input-label">Ask Kira</label><textarea id="kira-input" rows="2" maxlength="6000" placeholder="Ask about this page…"></textarea><button id="kira-send" type="submit" aria-label="Send to Kira">↑</button></form>
+    <p class="kira-footnote">Page access while open · Check important answers</p>
+  </aside>
   <div id="toast" class="toast" role="status" hidden></div>
   <script src="renderer.js"></script>
 </body>

@@ -12,6 +12,10 @@ import { protectElectronSession } from './adblock_electron.mjs';
 import { extractPage, inspectUrl } from './page_inspection.mjs';
 import { loadEmailProfiles, saveEmailProfiles, emailProfileByNickname } from './email_profiles.mjs';
 import { SearchHistory } from './search_history.mjs';
+import { AiSession } from './ai_session.mjs';
+import { KiraModel } from './ai_model.mjs';
+import { pageSnapshot, pageAction } from './ai_page.mjs';
+import { supportsKiraPopup } from './ai_platform.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const localDdgs = path.join(os.homedir(), 'Downloads/chatgpt_antigravity_bridge/bin/ddgs');
@@ -40,6 +44,47 @@ const adblock = new AdBlocker({ profileDir, onBlocked: (_item, request) => {
 } });
 let blockPublishTimer;
 let emailProfiles = [];
+const kiraModel = new KiraModel(path.dirname(here));
+let aiScope = null;
+const ai = new AiSession({
+  model: (messages, signal) => kiraModel.complete(messages, signal),
+  observe: observeAiPage,
+  act: actOnAiPage,
+  research: async action => {
+    if (recording) throw new Error('Stop recording before opening a research tab');
+    const id = newTab();
+    aiScope = { id, origin: null };
+    if (action.action === 'search') await search(action.query, id, 'web', {}, 'llm');
+    else { aiScope.origin = new URL(action.url).origin; await navigate(action.url, id); }
+    return observeAiPage();
+  },
+  changed: () => { if (window && !window.isDestroyed()) { for (const tab of tabs) if (tab.id === activeId && tab.view) tab.view.setBounds(bounds()); publish(); } },
+});
+function bindAiPage() { const tab = current(); aiScope = tab ? { id: tab.id, origin: tab.url ? new URL(tab.url).origin : null } : null; }
+async function observeAiPage() {
+  const tab = current();
+  if (!tab || tab.id !== aiScope?.id) throw new Error('The active tab changed. Send a new message to use this page.');
+  if (!tab.view) return { title: tab.title, search: tab.searchResults || null, text: 'No website is open. Ask permission to search or open a website.' };
+  if (new URL(tab.view.webContents.getURL()).origin !== aiScope.origin) throw new Error('The website changed. Send a new message to use this website.');
+  return tab.view.webContents.executeJavaScriptInIsolatedWorld(999, [{ code: `(${pageSnapshot.toString()})()` }]);
+}
+async function actOnAiPage(action, observation) {
+  if (action.action === 'read') return { summary: 'Read the current page' };
+  const tab = current();
+  if (!ai.state.open || tab?.id !== aiScope?.id || !tab?.view || tab.view.webContents.getURL() !== observation.url || new URL(observation.url).origin !== aiScope.origin) throw new Error('The page changed. Send a new message before continuing.');
+  const result = await tab.view.webContents.executeJavaScriptInIsolatedWorld(999, [{ code: `(() => { try { return (${pageAction.toString()})(${JSON.stringify(action)}); } catch (error) { return { error: error.message }; } })()` }]);
+  if (result?.error) throw new Error(result.error);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  return result;
+}
+function aiNavigation(event, url, tab) {
+  if (event.isMainFrame === false) return;
+  if (!ai.state.open || tab.id !== activeId || tab.id !== aiScope?.id) return;
+  try {
+    if (new URL(url).origin === aiScope.origin) return;
+    event.preventDefault(); if (!ai.state.pending) ai.request({ action: 'open', url: safeUrl(url), reason: 'The page requested navigation to another website' });
+  } catch { event.preventDefault(); }
+}
 
 app.setName('Diagonal Browser');
 app.setPath('userData', profileDir);
@@ -68,6 +113,7 @@ function publicState() {
     activeId,
     recording: recording ? { tabId: recording.tabId, path: recording.path } : null,
     panel, inspection, adBlockEnabled: shield.enabled, adBlockSiteEnabled: shield.siteEnabled, blockedCount: shield.blocked, emailProfiles,
+    ai: { ...ai.state, available: supportsKiraPopup(), model: kiraModel.label() },
   };
 }
 function publish() {
@@ -75,7 +121,7 @@ function publish() {
 }
 function bounds() {
   const [width, height] = window.getContentSize();
-  return { x: 0, y: toolbarHeight, width, height: Math.max(1, height - toolbarHeight) };
+  return { x: 0, y: toolbarHeight, width: Math.max(1, width - (ai.state.open ? 390 : 0)), height: Math.max(1, height - toolbarHeight) };
 }
 function showActive() {
   for (const tab of tabs) {
@@ -141,6 +187,10 @@ function attachView(tab) {
   const view = new WebContentsView({ webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
   tab.view = view;
   view.webContents.setWindowOpenHandler(({ url }) => {
+    if (ai.state.open && tab.id === activeId && tab.id === aiScope?.id) {
+      if (/^https?:\/\//i.test(url) && !ai.state.pending) ai.request({ action: 'open', url, reason: 'This page requested a new tab' });
+      return { action: 'deny' };
+    }
     if (!/^https?:\/\//i.test(url) && url !== 'about:blank') return { action: 'deny' };
     return {
       action: 'allow',
@@ -159,9 +209,11 @@ function attachView(tab) {
   });
   view.webContents.on('will-navigate', event => {
     if (!/^https?:\/\//i.test(event.url)) event.preventDefault();
+    else aiNavigation(event, event.url, tab);
   });
   view.webContents.on('will-redirect', event => {
     if (!/^https?:\/\//i.test(event.url)) event.preventDefault();
+    else aiNavigation(event, event.url, tab);
   });
   view.webContents.on('did-start-loading', () => { tab.loading = true; publish(); });
   view.webContents.on('did-stop-loading', () => { tab.loading = false; publish(); void rememberDesktopPage(tab, view); });
@@ -204,7 +256,7 @@ function runSearchCommand(command, args, timeoutMs) {
     });
   });
 }
-async function search(query, id = activeId, mode = 'web', filters = {}) {
+async function search(query, id = activeId, mode = 'web', filters = {}, source = 'desktop') {
   const tab = tabs.find(item => item.id === id);
   if (!tab) throw new Error('Tab not found');
   const cleanQuery = String(query || '').trim().slice(0, 300);
@@ -224,7 +276,7 @@ async function search(query, id = activeId, mode = 'web', filters = {}) {
   const results = await runSearchCommand(mode === 'images' ? imagePython : ddgs, args, mode === 'images' ? 30000 : 20000);
   if (!Array.isArray(results)) throw new Error('Search returned invalid results');
   let historyId;
-  try { historyId = (await searchHistory.save({ kind: 'search', source: 'desktop', query: cleanQuery, mode, results })).id; }
+  try { historyId = (await searchHistory.save({ kind: 'search', source, query: cleanQuery, mode, results })).id; }
   catch (error) { console.error('Could not save search history:', error.message); }
   panel = null;
   if (tab.view) { window.contentView.removeChildView(tab.view); tab.view.webContents.close(); tab.view = null; }
@@ -425,7 +477,7 @@ if (hasInstanceLock) app.whenReady().then(async () => {
     event.preventDefault();
     stopRecording().finally(() => window.close());
   });
-  window.on('closed', () => { if (recording) { clearInterval(recording.timer); recording.child.stdin.end(); } for (const tab of tabs) tab.view?.webContents.close(); });
+  window.on('closed', () => { ai.close(); kiraModel.dispose(); if (recording) { clearInterval(recording.timer); recording.child.stdin.end(); } for (const tab of tabs) tab.view?.webContents.close(); });
   await window.loadFile(path.join(here, 'ui/index.html'));
   newTab();
   if (process.env.DIAGONAL_DESKTOP_SMOKE === '1') {
@@ -472,7 +524,19 @@ if (hasInstanceLock) app.whenReady().then(async () => {
 
 ipcMain.handle('diagonal:action', async (event, action, value) => {
   if (!window || event.sender !== window.webContents) throw new Error('Unauthorized browser command');
+  if (typeof action !== 'string') throw new Error('Invalid browser command');
+  if (action.startsWith('ai') && !supportsKiraPopup()) throw new Error('Kira AI mode is available only in the macOS Apple Silicon MLX edition');
+  if (['newTab', 'reopenClosedTab', 'selectTab', 'closeTab', 'navigate', 'submitSearch', 'search', 'home', 'back', 'forward', 'reload', 'revisitHistory', 'openPanel'].includes(action) && (ai.state.busy || ai.state.pending)) ai.stop();
   switch (action) {
+    case 'aiToggle': {
+      if (ai.state.open) ai.close();
+      else { panel = null; bindAiPage(); ai.open(); }
+      showActive(); window.webContents.focus(); return;
+    }
+    case 'aiClose': ai.close(); showActive(); return;
+    case 'aiStop': ai.stop(); return;
+    case 'aiSend': if (!ai.state.busy && !ai.state.pending) bindAiPage(); return ai.send(value);
+    case 'aiPermission': return ai.decide(value?.id, value?.allowed);
     case 'state': return publicState();
     case 'newTab': return newTab(value);
     case 'reopenClosedTab': return reopenClosedTab();

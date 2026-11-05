@@ -26,6 +26,23 @@ Keyboard shortcuts include **Cmd/Ctrl+L** for the address bar, **Cmd/Ctrl+T** fo
 
 Run `npm test` for browser/MCP unit and integration checks. On macOS, `npm run test:desktop` launches an isolated temporary profile and local search/page fixtures to verify the 1440px/800px layouts, native page alignment, history restoration, fresh search reload, closed-tab reopening and tool panels. Preview screenshots are written to the ignored `artifacts/` directory; the test profile is removed afterward.
 
+## Kira AI popup
+
+Available only in the **macOS Apple Silicon MLX edition**. Other platforms hide the Kira button and reject AI popup commands in the main process. This feature is not published to the Linux preview branch or its release assets.
+
+Click **✦ Kira** in the tab bar to open AI mode. The floating panel keeps the current website visible beside the conversation. Ask Kira to summarize, find information, or use controls on that page. Kira receives bounded page text and numbered elements, and can read, click, fill ordinary fields, and scroll. Password and payment fields are excluded from filling; form field values are not included in observations. Page text is treated as untrusted evidence. Controls currently address the top-level document, not embedded frames.
+
+The popup uses the same model configuration conventions as Kira Superapp:
+
+- **Local Orchestrator:** automatically finds `models/orchestrator_v1_fused` (and common fused checkpoint names). Set `KIRA_ORCHESTRATOR_PATH` to use another downloaded fused checkpoint and `DIAGONAL_KIRA_PYTHON` to select the Python environment containing MLX. It starts a reusable isolated `model_worker.py` process when first needed.
+- **Model server:** set `KIRA_MODEL_BASE_URL` (for example `http://127.0.0.1:8080/v1`) and `KIRA_MODEL_NAME`. Optional `KIRA_MODEL_API_KEY` stays in the main process. Remote servers require HTTPS. Page observations are sent to that configured server when you submit a message. Relaunch Diagonal after changing environment settings.
+
+Opening AI mode grants page controls for the current website while the popup remains open. Any model-requested search or new website waits for an **Allow once / Stay here** permission card. Approval opens one tab and resumes the model with the resulting evidence. Requests expire after use or cancellation. Cross-site links, scripted popups, and main-frame redirects on the controlled page pass through the same permission boundary; the model cannot call arbitrary JavaScript or browser IPC. Approved searches are recorded as Kira/LLM history.
+
+**Stop** cancels in-flight inference and prevents late model responses from acting. Closing the popup (or Escape) revokes pending requests and page controls. Switching tabs or manually navigating interrupts active work; the next message binds access to the newly selected page. Conversations stay in memory for the current browser run. Each request is limited to eight model steps; send another message to continue.
+
+`npm run test:desktop` also exercises the popup against a local model-server fixture: actual page fill/click, hidden input values, scripted popup/navigation interception, search approval/denial, single approved tab creation, and Stop. The fixture makes control-flow checks deterministic; model quality depends on your configured checkpoint.
+
 ## Search history for Kira and other models
 
 Open **History** in the toolbar (or **Cmd/Ctrl+Shift+H**) to search saved queries, result titles, URLs, snippets, and cached page text. Filter by searches/pages or Kira/browser. **Read saved** reads the local copy; **Restore results** restores a search without rerunning it; **Open website** visits the current source. Saved results show when they were captured. Reading a saved search does not mean its linked pages were read.

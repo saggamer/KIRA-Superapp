@@ -252,6 +252,7 @@ function stepImage(direction) {
 }
 function render(next) {
   state = next;
+  renderKira();
   renderTabs();
   const tab = state.tabs.find(item => item.id === state.activeId);
   if (!tab?.searchResults || tab.searchResults.mode !== 'images') closeImageViewer();
@@ -584,6 +585,14 @@ window.diagonal.onFocusAddress(() => { address.focus(); address.select(); });
 run('state').then(value => { if (value) render(value); });
 
 $('#new-tab').onclick = () => run('newTab');
+$('#kira-toggle').onclick = async () => { await run('aiToggle'); if (!$('#kira-popup').hidden) $('#kira-input').focus(); };
+$('#kira-close').onclick = () => run('aiClose');
+$('#kira-stop').onclick = () => run('aiStop');
+$('#kira-form').onsubmit = event => { event.preventDefault(); const input = $('#kira-input'); const text = input.value.trim(); if (!text || state.ai?.busy || state.ai?.pending) return; input.value = ''; run('aiSend', text); };
+$('#kira-input').onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('#kira-form').requestSubmit(); } };
+$('#kira-allow').onclick = () => run('aiPermission', { id: state.ai?.pending?.id, allowed: true });
+$('#kira-deny').onclick = () => run('aiPermission', { id: state.ai?.pending?.id, allowed: false });
+document.querySelectorAll('[data-prompt]').forEach(button => { button.onclick = () => run('aiSend', button.dataset.prompt); });
 $('#back').onclick = () => run('back');
 $('#forward').onclick = () => run('forward');
 $('#reload').onclick = () => state.tabs.find(tab => tab.id === state.activeId)?.searchResults ? requestSearch('reload') : run('reload');
@@ -622,6 +631,7 @@ $('#image-copy').onclick = async () => { const item = imageResults[imageIndex]; 
 $('#image-original').onclick = () => { const item = imageResults[imageIndex]; if (item) { closeImageViewer(); run('newTab', item.image); } };
 $('#image-source').onclick = () => { const item = imageResults[imageIndex]; if (item) { closeImageViewer(); run('newTab', item.url); } };
 document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && state.ai?.open && !state.panel) { event.preventDefault(); run('aiClose'); return; }
   if (!$('#image-viewer').hidden) {
     if (event.key === 'Escape') { event.preventDefault(); closeImageViewer(); }
     if (event.key === 'ArrowLeft') { event.preventDefault(); stepImage(-1); }
@@ -634,3 +644,44 @@ document.addEventListener('keydown', event => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 't') { event.preventDefault(); run(event.shiftKey ? 'reopenClosedTab' : 'newTab'); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'w') { event.preventDefault(); run('closeTab', state.activeId); }
 });
+
+let kiraMessageKey = '';
+function renderKira() {
+  const ai = state.ai || {};
+  $('#kira-toggle').hidden = !ai.available;
+  const wasOpen = !$('#kira-popup').hidden;
+  $('#kira-popup').hidden = !ai.open;
+  document.body.classList.toggle('kira-open', !!ai.open);
+  $('#kira-toggle').classList.toggle('active', !!ai.open);
+  $('#kira-toggle').setAttribute('aria-expanded', String(!!ai.open));
+  if (!ai.open) return;
+  $('#kira-model').textContent = ai.model || 'Kira';
+  const tab = state.tabs.find(item => item.id === state.activeId);
+  let scope = 'Current tab · Ask to search the web';
+  try { if (tab?.url) scope = `Page access · ${new URL(tab.url).hostname}`; } catch {}
+  $('#kira-scope').textContent = scope;
+  $('#kira-status').textContent = ai.status || 'Ready';
+  $('#kira-stop').hidden = !ai.busy;
+  $('#kira-send').disabled = !!ai.busy || !!ai.pending;
+  $('#kira-input').disabled = !!ai.pending;
+  $('#kira-permission').hidden = !ai.pending;
+  if (ai.pending) {
+    $('#kira-permission-detail').textContent = ai.pending.action === 'search' ? `Search the web for “${ai.pending.query}”` : ai.pending.url;
+    $('#kira-permission-reason').textContent = ai.pending.reason || 'Kira needs another source to continue.';
+    $('#kira-allow').disabled = !!ai.busy;
+    $('#kira-deny').disabled = !!ai.busy;
+  }
+  const key = JSON.stringify(ai.messages || []);
+  if (key !== kiraMessageKey && ai.messages?.length) {
+    kiraMessageKey = key;
+    const list = $('#kira-messages'); const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+    list.replaceChildren();
+    for (const message of ai.messages) {
+      const node = document.createElement('div'); node.className = `kira-message kira-${message.role}`;
+      const label = document.createElement('small'); label.textContent = ({ user: 'YOU', assistant: 'KIRA', error: 'CONNECTION / ACTION', activity: 'BROWSER' })[message.role] || 'KIRA';
+      const text = document.createElement('p'); text.textContent = message.text;
+      node.append(label, text); list.append(node);
+    }
+    if (atBottom || !wasOpen) list.scrollTop = list.scrollHeight;
+  }
+}

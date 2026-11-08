@@ -1353,6 +1353,8 @@ class KiraActionsMixin:
         text = re.sub(r"\s+", " ", str(prompt or "").strip().lower())
         if not text:
             return ""
+        if re.fullmatch(r'(?:please\s+)?(?:open|show|launch)\s+(?:microsoft\s+)?(?:word|powerpoint)(?:\s+app)?[.!]?', text):
+            return ""
 
         artifact_words = [
             "ppt", "pptx", "powerpoint", "presentation", "deck",
@@ -1363,7 +1365,7 @@ class KiraActionsMixin:
             "draft", "write", "export", "produce"
         ]
         create_artifact_request = (
-            any(word in text for word in artifact_words)
+            any(re.search(rf"\b{re.escape(word)}\b", text) for word in artifact_words)
             and any(re.search(rf"\b{re.escape(word)}\b", text) for word in create_words)
         )
         if create_artifact_request or self._is_artifact_conversion_request(text):
@@ -1379,7 +1381,7 @@ class KiraActionsMixin:
             "open the report", "open report", "open the file", "open file",
             "show the report", "where is the report"
         ]) or (
-            any(word in text for word in artifact_words)
+            any(re.search(rf"\b{re.escape(word)}\b", text) for word in artifact_words)
             and any(verb in text for verb in ["open", "show", "view", "where", "find"])
         )
         wants_open = explicit_artifact_open or self._is_compact_artifact_reference(text)
@@ -1394,10 +1396,21 @@ class KiraActionsMixin:
             target = self._latest_artifact_for_followup(prompt, chat_id)
 
         if not target:
+            if not explicit_artifact_open:
+                # A bare "open it" may refer to an app or cloned repository.
+                # Leave unresolved references to the model and chat context.
+                return ""
             return (
                 "I cannot find a generated artifact from this chat to open yet. "
                 "Generate the PPTX/report first, or open it from the KIRA Menu."
             )
+
+        if not explicit_artifact_open:
+            messages = self._load_chat_messages(chat_id)
+            latest_assistant = next((str(item.get('content', '')) for item in reversed(messages)
+                                     if item.get('role') == 'assistant'), '')
+            if target not in latest_assistant:
+                return ""
 
         if verification_requested:
             verification = self._verify_artifact_for_followup(target, prompt, chat_id)
@@ -7080,7 +7093,7 @@ if __name__ == "__main__":
                 env["HF_HUB_OFFLINE"] = "1"
                 env["TRANSFORMERS_OFFLINE"] = "1"
                 run = subprocess.run(command, cwd=self.app_root, capture_output=True, text=True,
-                                     timeout=120, env=env)
+                                     timeout=None, env=env)
                 if run.returncode:
                     detail = self._truncate((run.stderr or run.stdout).strip(), 2500)
                     result = f"IMAGE_ANALYZE error for {image_path}: {detail}"

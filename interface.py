@@ -1039,6 +1039,9 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                      'registered review worker. Workers return text proposals only; do not '
                      'claim a patch was applied or tests ran. Use a bounded task packet.')
         messages = [{"role": "system", "content": base_system + "\n" + hint}]
+        if not browser_task and not artifact_task:
+            from orchestrator_v15.desktop_harness import context as desktop_context
+            messages[0]['content'] += '\n' + desktop_context(getattr(self, 'agentic_workspace', ''))
         if browser_task:
             messages[0]['content'] += (
                 '\nThis is a Diagonal Browser task. Return only one closed [BROWSER_TOOL] block '
@@ -1284,8 +1287,10 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
             if ppt_candidate and deck_controller and round_index < budget.tool_calls:
                 visual_action = deck_controller.next_image_analysis_action()
                 if visual_action and deck_controller.preflight(visual_action) is None:
+                    analysis_started = time.monotonic()
                     visual_result = self._run_agentic_capabilities_with_watchdog(
                         visual_action, request, chat_id, round_index)
+                    deadline += time.monotonic() - analysis_started
                     deck_controller.record(visual_action, visual_result)
                     last_result = self._truncate(str(visual_result), 7000)
                     if str(visual_result).startswith('IMAGE_ANALYSIS:'):
@@ -1507,6 +1512,20 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 if deck_tag and parsed is None:
                     parsed = (deck_tag, {})
             if parsed is None:
+                if not browser_task and not artifact_task:
+                    from orchestrator_v15.desktop_harness import unsupported_desktop_denial, local_desktop_request
+                    if (unsupported_desktop_denial(answer) and local_desktop_request(request, prior_messages) and
+                            not re.search(r'\b(?:error|failed|denied|permission|unsupported)\b', last_result, re.I)):
+                        invalid_control_retries += 1
+                        if invalid_control_retries <= budget.replans:
+                            messages.extend([{'role': 'assistant', 'content': answer}, {'role': 'user', 'content':
+                                'Kira has local desktop tools. The current request is authorized, and no '
+                                'tool has reported that access is unavailable. Use APP_LIST for installed '
+                                'apps, LIST_DIR/SEARCH_FILES to locate a cloned project, or OPEN with one '
+                                'observed app/path. Resolve the target from the recent user context. '
+                                'Return a supported next action; do not repeat a generic lack-of-access disclaimer.'}])
+                            continue
+                        return 'Kira has local app and file tools, but the model did not select a valid action for this request.'
                 if coding_agents:
                     return coding_agents.final_answer() or (
                         'Coding-agent coordination stopped before all worker results were observed.')
@@ -1625,7 +1644,10 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 return f"Orchestrator v1.5 proposed {tag}, which this profile does not execute yet."
             if round_index >= budget.tool_calls:
                 return "Orchestrator v1.5 reached its tool-call limit."
+            tool_started = time.monotonic()
             result = self._run_agentic_capabilities_with_watchdog(answer, request, chat_id, round_index)
+            if tag == "IMAGE_ANALYZE":
+                deadline += time.monotonic() - tool_started
             last_result = self._truncate(str(result), 7000)
             if coding_agents:
                 coding_agents.record(answer, last_result)
@@ -4367,8 +4389,11 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         result_queue = queue.Queue(maxsize=1)
         timeout_seconds = int(getattr(self, "agentic_step_timeout_seconds", 38))
         if str(current_output or '').lstrip().startswith('[IMAGE_ANALYZE]'):
-            # The isolated vision command has its own 120-second bound.
-            timeout_seconds = max(timeout_seconds, 135)
+            # Vision loading/inference has no fixed wall-clock cutoff. The
+            # bridge is already off the UI thread, so keep waiting for evidence.
+            timeout_seconds = None
+            self.response_queue.put({'type': 'status', 'chat_id': chat_id,
+                'content': 'Analyzing the image locally. Waiting for the result…'})
         if str(current_output or '').lstrip().startswith(('[IMAGE_GENERATE]', '[IMAGE_EDIT]')):
             timeout_seconds = max(timeout_seconds, 620)
 

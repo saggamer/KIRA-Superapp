@@ -2150,6 +2150,7 @@ class KiraActionsMixin:
         return "\n\n".join(dict.fromkeys(blocks))
 
     def _prompt_needs_web_evidence_for_artifact(self, raw_prompt):
+        from orchestrator_v15.artifact_scope import no_web_requested, no_images_requested
         text = re.sub(r"\s+", " ", str(raw_prompt or "").lower()).strip()
         if not text:
             return False
@@ -2158,7 +2159,7 @@ class KiraActionsMixin:
         ])
         if not wants_artifact:
             return False
-        if re.search(r"\b(?:offline|no web|without (?:the )?(?:web|internet))\b", text):
+        if no_web_requested(raw_prompt):
             return False
         if re.search(r"\b(?:on|about)\s+(?:the\s+)?(?:best|top[ -]rated|highest[ -]rated|most acclaimed)\b", text):
             return True
@@ -2172,7 +2173,7 @@ class KiraActionsMixin:
         wants_images = any(phrase in text for phrase in [
             "image", "images", "photo", "photos", "poster", "posters"
         ])
-        return wants_images and not bool(self._extract_image_sources_from_prompt(raw_prompt))
+        return wants_images and not no_images_requested(raw_prompt) and not bool(self._extract_image_sources_from_prompt(raw_prompt))
 
     def _model_research_shortcut_blocks(self, output, raw_prompt, chat_id=None):
         """Recover this read-only UI shortcut without queuing a new user task."""
@@ -2917,11 +2918,10 @@ NOTES: Generated as a new artifact for this chat and validated before completion
         return False
 
     def _pptx_visuals_requested(self, raw_prompt):
+        from orchestrator_v15.artifact_scope import no_images_requested
         request = str(raw_prompt or "").lower()
         return (bool(re.search(r"\b(?:images?|photos?|visuals?|pictures?)\b", request))
-                and not bool(re.search(
-                    r"\b(?:no|without)\s+(?:images?|photos?|visuals?|pictures?)\b|\btext[ -]only\b",
-                    request)))
+                and not no_images_requested(raw_prompt))
 
     def _pptx_min_visuals(self, raw_prompt):
         """Honor an explicit single-image brief; otherwise expect visual variety."""
@@ -3383,7 +3383,18 @@ NOTES: Generated as a new artifact for this chat and validated before completion
             request = str(raw_prompt or "").lower()
             joined_text = " ".join(all_text).lower()
             compact_text = re.sub(r"[^a-z0-9]+", "", joined_text)
-            topic_terms = self._prompt_keywords_for_artifact(raw_prompt, max_terms=8)
+            title_match = re.search(
+                r'\btitled\s+(?:"([^"]+)"|\'([^\']+)\'|(.+?)(?=\s+(?:from|using|with|based on)\b|[.!?]\s+(?:Use|Do|Keep)\b|$))',
+                str(raw_prompt or ''), re.I)
+            if title_match:
+                requested_title = next(value for value in title_match.groups() if value is not None)
+                topic_terms = list(dict.fromkeys(word.lower() for word in re.findall(r'[A-Za-z]{3,}', requested_title)
+                                                if word.lower() not in {'the', 'and', 'for', 'with'}))[:8]
+            else:
+                instructions = {'titled', 'supplied', 'facts', 'chat', 'its', 'information', 'two',
+                                'short', 'sections', 'words', 'about', 'not', 'browse'}
+                topic_terms = [term for term in self._prompt_keywords_for_artifact(raw_prompt, max_terms=16)
+                               if term not in instructions][:8]
             report["topic_terms"] = topic_terms
             report["matched_topic_terms"] = [
                 term for term in topic_terms
@@ -6996,6 +7007,11 @@ if __name__ == "__main__":
             try:
                 from diagonal_browser.kira_client import call_browser_tool
                 from diagonal_browser.result_projection import render_browser_result
+                self._browser_preview_chat_id = chat_id
+                self._browser_preview_active = True
+                if hasattr(self, 'response_queue'):
+                    self.response_queue.put({'type': 'browser_preview', 'chat_id': chat_id,
+                                             'active': True, 'action': action})
                 result = call_browser_tool(action, arguments)
                 label = "BROWSER_TOOL ERROR:\n" if isinstance(result, dict) and isinstance(result.get("status"), int) and result["status"] >= 400 else "BROWSER_TOOL:\n"
                 if hasattr(self, "_log_agentic_event"):
@@ -7029,13 +7045,19 @@ if __name__ == "__main__":
 
 
     def _run_image_generation_blocks(self, response_text, chat_id=None):
-        from orchestrator_v15.z_image_tool import generate_image
+        horizon = getattr(self, '_image_edit_backend', '') == 'horizon-1'
+        if horizon:
+            from orchestrator_v15.horizon_image_tool import generate_image
+        else:
+            from orchestrator_v15.z_image_tool import generate_image
         for block in self._extract_blocks(response_text, "IMAGE_GENERATE"):
             fields = self._parse_fields(block)
             try:
+                if horizon and callable(getattr(self,'_stop_model_worker',None)):self._stop_model_worker()
                 path = generate_image(fields.get('prompt', ''), self.agentic_workspace,
                                       self.app_root, seed=fields.get('seed', 42))
-                result = f'IMAGE_GENERATED:\nPath: `{path}`\nModel: Z-Image Turbo Q4 (MLX)'
+                model='Horizon 1 MLX creativity expert (experimental)' if horizon else 'Z-Image Turbo Q4 (MLX)'
+                result = f'IMAGE_GENERATED:\nPath: `{path}`\nModel: {model}'
             except Exception as error:
                 result = f'IMAGE_GENERATE error: {type(error).__name__}: {error}'
             self.last_agentic_intent = 'image_generate'
@@ -7044,16 +7066,25 @@ if __name__ == "__main__":
         return response_text
 
     def _run_image_edit_blocks(self, response_text, chat_id=None):
-        from orchestrator_v15.z_image_tool import edit_image
+        horizon = getattr(self, '_image_edit_backend', '') == 'horizon-1'
+        if horizon:
+            from orchestrator_v15.horizon_image_tool import edit_image
+        else:
+            from orchestrator_v15.z_image_tool import edit_image
         for block in self._extract_blocks(response_text, "IMAGE_EDIT"):
             fields = self._parse_fields(block)
             try:
                 source = self._resolve_path(str(fields.get('path', '')).strip().strip('`'))
                 mask = self._resolve_path(str(fields['mask']).strip().strip('`')) if fields.get('mask') else None
+                if horizon and callable(getattr(self, '_stop_model_worker', None)):
+                    self._stop_model_worker()
                 path = edit_image(fields.get('prompt', ''), source, self.agentic_workspace,
-                                  self.app_root, strength=fields.get('strength', 0.4),
+                                  self.app_root, strength=fields.get('strength', None if horizon else 0.4),
                                   mask=mask, region=fields.get('region'), seed=fields.get('seed', 42))
-                result = f'IMAGE_EDITED:\nPath: `{path}`\nSource: `{source}`\nModel: Z-Image Turbo Q4 (MLX)'
+                model = 'Horizon 1 MLX (experimental)' if horizon else 'Z-Image Turbo Q4 (MLX)'
+                result = f'IMAGE_EDITED:\nPath: `{path}`\nSource: `{source}`\nModel: {model}'
+                if horizon:
+                    result += f'\nPredicted mask: `{path.with_suffix(".predicted-mask.png")}`\nInstruction adherence requires inspection.'
             except Exception as error:
                 result = f'IMAGE_EDIT error: {type(error).__name__}: {error}'
             self.last_agentic_intent = 'image_edit'
@@ -8669,6 +8700,12 @@ if __name__ == "__main__":
 
     def _find_app_bundle(self, app_name):
         wanted = re.sub(r"[^a-z0-9]+", "", str(app_name or "").lower())
+        aliases = {
+            "powerpoint": "microsoftpowerpoint", "word": "microsoftword",
+            "excel": "microsoftexcel", "chrome": "googlechrome",
+            "vscode": "visualstudiocode",
+        }
+        wanted = aliases.get(wanted, wanted)
 
         if not wanted:
             return ""
@@ -8692,7 +8729,7 @@ if __name__ == "__main__":
                     app_display = dirname[:-4]
                     normalized = re.sub(r"[^a-z0-9]+", "", app_display.lower())
 
-                    if normalized == wanted or wanted in normalized or normalized in wanted:
+                    if normalized == wanted:
                         return os.path.join(current_root, dirname)
 
                 dirs[:] = [

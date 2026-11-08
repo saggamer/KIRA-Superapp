@@ -16,6 +16,7 @@ import { AiSession } from './ai_session.mjs';
 import { KiraModel } from './ai_model.mjs';
 import { pageSnapshot, pageAction } from './ai_page.mjs';
 import { supportsKiraPopup } from './ai_platform.mjs';
+import { TabNavigation, liveContents, countBlockedRequest } from './desktop_navigation.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const localDdgs = path.join(os.homedir(), 'Downloads/chatgpt_antigravity_bridge/bin/ddgs');
@@ -38,8 +39,7 @@ let recording = null;
 let panel = null;
 let inspection = null;
 const adblock = new AdBlocker({ profileDir, onBlocked: (_item, request) => {
-  const tab = tabs.find(item => item.view?.webContents.id === request.tabId);
-  if (tab) tab.blocked += 1;
+  countBlockedRequest(tabs, request);
   if (!blockPublishTimer) blockPublishTimer = setTimeout(() => { blockPublishTimer = null; publish(); }, 200);
 } });
 let blockPublishTimer;
@@ -58,13 +58,13 @@ const ai = new AiSession({
     else { aiScope.origin = new URL(action.url).origin; await navigate(action.url, id); }
     return observeAiPage();
   },
-  changed: () => { if (window && !window.isDestroyed()) { for (const tab of tabs) if (tab.id === activeId && tab.view) tab.view.setBounds(bounds()); publish(); } },
+  changed: () => { if (window && !window.isDestroyed()) { for (const tab of tabs) if (tab.id === activeId && liveContents(tab.view)) tab.view.setBounds(bounds()); publish(); } },
 });
 function bindAiPage() { const tab = current(); aiScope = tab ? { id: tab.id, origin: tab.url ? new URL(tab.url).origin : null } : null; }
 async function observeAiPage() {
   const tab = current();
   if (!tab || tab.id !== aiScope?.id) throw new Error('The active tab changed. Send a new message to use this page.');
-  if (!tab.view) return { title: tab.title, search: tab.searchResults || null, text: 'No website is open. Ask permission to search or open a website.' };
+  if (!isWebsite(tab) || !liveContents(tab.view)) return { title: tab.title, search: tab.searchResults || null, text: 'No website is open. Ask permission to search or open a website.' };
   if (new URL(tab.view.webContents.getURL()).origin !== aiScope.origin) throw new Error('The website changed. Send a new message to use this website.');
   return tab.view.webContents.executeJavaScriptInIsolatedWorld(999, [{ code: `(${pageSnapshot.toString()})()` }]);
 }
@@ -100,15 +100,65 @@ app.on('second-instance', () => {
 });
 
 function current() { return tabs.find(tab => tab.id === activeId); }
-function goBack() { const history = current()?.view?.webContents.navigationHistory; if (history?.canGoBack()) history.goBack(); }
-function goForward() { const history = current()?.view?.webContents.navigationHistory; if (history?.canGoForward()) history.goForward(); }
+function goBack() { return traverseTab(-1); }
+function goForward() { return traverseTab(1); }
+function isWebsite(tab) { return !!tab?.url && !tab.searchResults; }
+function retireView(tab) {
+  const view = tab.view; const contents = liveContents(view);
+  tab.view = null;
+  if (view && window && !window.isDestroyed()) window.contentView.removeChildView(view);
+  contents?.close();
+}
+function setSurface(tab, entry, { remember = true } = {}) {
+  tab.navigationEpoch = (tab.navigationEpoch || 0) + 1;
+  liveContents(tab.view)?.stop();
+  tab.restoring = null;
+  tab.url = ''; tab.title = entry.title; tab.searchResults = entry.searchResults ? structuredClone(entry.searchResults) : null;
+  tab.loading = false; tab.historyVisit = null; tab.error = null;
+  if (remember) tab.navigation.surface(entry);
+  panel = null; inspection = null;
+  if (tab.id === activeId) showActive(); else publish();
+}
+function commitPage(tab, view, url) {
+  const contents = liveContents(view);
+  if (tab.view !== view || !contents || !tabs.includes(tab) || !isWebsite(tab)) return;
+  tab.url = url; tab.searchResults = null; tab.historyVisit = null;
+  tab.navigation.page({ url, title: tab.title, nativeIndex: contents.navigationHistory.getActiveIndex(), viewId: contents.id }, { replace: tab.navigation.current === tab.restoring });
+  tab.restoring = null;
+  if (tab.id === activeId) showActive(); else publish();
+}
+async function traverseTab(direction) {
+  if (recording) throw new Error('Stop recording before navigating through history');
+  if (ai.state.busy || ai.state.pending) ai.stop();
+  const tab = current(); const entry = tab?.navigation.move(direction);
+  if (!entry) return;
+  tab.navigationEpoch = (tab.navigationEpoch || 0) + 1;
+  panel = null; inspection = null;
+  liveContents(tab.view)?.stop();
+  if (entry.kind !== 'page') { setSurface(tab, entry, { remember: false }); return; }
+  tab.url = entry.url; tab.title = entry.title; tab.searchResults = null; tab.error = null;
+  const contents = liveContents(attachView(tab));
+  const history = contents.navigationHistory;
+  const nativeEntry = entry.viewId === contents.id ? history.getEntryAtIndex(entry.nativeIndex) : null;
+  tab.loading = history.getActiveIndex() !== entry.nativeIndex || contents.getURL() !== entry.url;
+  tab.restoring = tab.loading ? entry : null;
+  showActive();
+  if (nativeEntry?.url === entry.url && (history.getActiveIndex() !== entry.nativeIndex || contents.getURL() === entry.url)) {
+    if (history.getActiveIndex() !== entry.nativeIndex) history.goToIndex(entry.nativeIndex);
+  } else {
+    try { await contents.loadURL(entry.url); }
+    catch (error) { if (error.errno !== -3 && error.code !== 'ERR_ABORTED') throw error; }
+    finally { if (tab.restoring === entry) tab.restoring = null; }
+  }
+  publish();
+}
 function publicState() {
   const shield = adblock.status(current()?.url);
   return {
-    tabs: tabs.map(({ id, title, url, loading, searchResults, blocked, view }) => ({
+    tabs: tabs.map(({ id, title, url, loading, searchResults, blocked, navigation }) => ({
       id, title, url, loading, searchResults, blocked,
-      canGoBack: view?.webContents.navigationHistory.canGoBack() || false,
-      canGoForward: view?.webContents.navigationHistory.canGoForward() || false,
+      canGoBack: !recording && navigation.canGoBack,
+      canGoForward: !recording && navigation.canGoForward,
     })),
     activeId,
     recording: recording ? { tabId: recording.tabId, path: recording.path } : null,
@@ -125,11 +175,12 @@ function bounds() {
 }
 function showActive() {
   for (const tab of tabs) {
-    if (!tab.view) continue;
-    if (tab.id === activeId && !panel) {
+    const contents = liveContents(tab.view);
+    if (!contents) continue;
+    if (tab.id === activeId && !panel && isWebsite(tab)) {
       window.contentView.addChildView(tab.view);
       tab.view.setBounds(bounds());
-      tab.view.webContents.focus();
+      contents.focus();
     } else {
       window.contentView.removeChildView(tab.view);
     }
@@ -147,7 +198,7 @@ function looksLikeUrl(input) {
 }
 function newTab(url) {
   if (recording) throw new Error('Stop recording before opening another tab');
-  const tab = { id: randomUUID().slice(0, 8), title: 'New tab', url: '', loading: false, searchResults: null, view: null, blocked: 0 };
+  const tab = { id: randomUUID().slice(0, 8), title: 'New tab', url: '', loading: false, searchResults: null, view: null, blocked: 0, navigation: new TabNavigation() };
   tabs.push(tab);
   activeId = tab.id;
   panel = null;
@@ -157,7 +208,7 @@ function newTab(url) {
 }
 
 async function rememberDesktopPage(tab, view) {
-  if (tab.view !== view || view.webContents.isDestroyed()) return;
+  if (tab.view !== view || !liveContents(view) || !isWebsite(tab)) return;
   try {
     const page = await view.webContents.executeJavaScript('({ url: location.href, title: document.title, text: (document.body?.innerText || "").slice(0, 25001) })');
     if (!/^https?:\/\//i.test(page.url) || tab.view !== view || tab.url !== page.url) return;
@@ -176,14 +227,12 @@ async function revisitHistory(value) {
   const tab = current();
   if (!tab) throw new Error('Tab not found');
   if (recording) throw new Error('Stop recording before restoring a saved search');
-  if (tab.view) { window.contentView.removeChildView(tab.view); tab.view.webContents.close(); tab.view = null; }
-  tab.url = ''; tab.title = `Saved search: ${entry.query}`;
-  tab.searchResults = { query: entry.query, results: entry.results, mode: entry.mode, savedAt: entry.createdAt, historyId: entry.id };
-  panel = null; showActive();
+  setSurface(tab, { kind: 'search', title: `Saved search: ${entry.query}`, searchResults: { query: entry.query, results: entry.results, mode: entry.mode, savedAt: entry.createdAt, historyId: entry.id } });
 }
 
 function attachView(tab) {
-  if (tab.view) return tab.view;
+  if (liveContents(tab.view)) return tab.view;
+  if (tab.view) retireView(tab);
   const view = new WebContentsView({ webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
   tab.view = view;
   view.webContents.setWindowOpenHandler(({ url }) => {
@@ -215,13 +264,19 @@ function attachView(tab) {
     if (!/^https?:\/\//i.test(event.url)) event.preventDefault();
     else aiNavigation(event, event.url, tab);
   });
-  view.webContents.on('did-start-loading', () => { tab.loading = true; publish(); });
-  view.webContents.on('did-stop-loading', () => { tab.loading = false; publish(); void rememberDesktopPage(tab, view); });
-  view.webContents.on('did-navigate', (_event, url) => { tab.url = url; tab.historyVisit = null; publish(); });
-  view.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame) { tab.url = url; tab.historyVisit = null; publish(); void rememberDesktopPage(tab, view); } });
-  view.webContents.on('page-title-updated', (_event, title) => { tab.title = title || tab.url; publish(); });
+  view.webContents.on('destroyed', () => { if (tab.view === view) { tab.view = null; tab.loading = false; publish(); } });
+  view.webContents.on('did-start-loading', () => { if (tab.view === view && isWebsite(tab)) { tab.loading = true; publish(); } });
+  view.webContents.on('did-stop-loading', () => { if (tab.view === view) { tab.loading = liveContents(view)?.isLoading() || false; publish(); void rememberDesktopPage(tab, view); } });
+  view.webContents.on('did-navigate', (_event, url) => commitPage(tab, view, url));
+  view.webContents.on('did-navigate-in-page', (_event, url, isMainFrame) => { if (isMainFrame) { commitPage(tab, view, url); void rememberDesktopPage(tab, view); } });
+  view.webContents.on('page-title-updated', (_event, title) => {
+    if (tab.view !== view || !isWebsite(tab)) return;
+    tab.title = title || tab.url;
+    if (tab.navigation.current.kind === 'page') tab.navigation.current.title = tab.title;
+    publish();
+  });
   view.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
-    if (isMainFrame && code !== -3) { tab.loading = false; tab.title = `Could not load ${url || tab.url}`; tab.error = description; publish(); }
+    if (tab.view === view && isWebsite(tab) && isMainFrame && code !== -3) { tab.loading = false; tab.title = `Could not load ${url || tab.url}`; tab.error = description; publish(); }
   });
   return view;
 }
@@ -233,12 +288,16 @@ async function navigate(input, id = activeId) {
   if (!looksLikeUrl(value)) return search(value, id);
   const url = safeUrl(value);
   panel = null;
+  tab.navigationEpoch = (tab.navigationEpoch || 0) + 1;
+  tab.restoring = null;
   tab.searchResults = null;
   tab.url = url;
   tab.title = new URL(url).hostname;
+  tab.loading = true;
   const view = attachView(tab);
   if (id === activeId) showActive();
-  await view.webContents.loadURL(url);
+  try { await view.webContents.loadURL(url); }
+  catch (error) { if (error.errno !== -3 && error.code !== 'ERR_ABORTED') throw error; }
   publish();
 }
 function runSearchCommand(command, args, timeoutMs) {
@@ -263,6 +322,7 @@ async function search(query, id = activeId, mode = 'web', filters = {}, source =
   if (!cleanQuery) return;
   if (!['web', 'images'].includes(mode)) throw new Error('Unknown search mode');
   if (mode === 'images' && !existsSync(imagePython)) throw new Error('Image search is not installed. Run SETUP_DIAGONAL_BROWSER.command.');
+  const navigationEpoch = tab.navigationEpoch = (tab.navigationEpoch || 0) + 1;
   const safeFilters = {
     size: ['Large', 'Wallpaper'].includes(filters?.size) ? filters.size : undefined,
     color: filters?.color === 'Monochrome' ? 'Monochrome' : undefined,
@@ -275,16 +335,13 @@ async function search(query, id = activeId, mode = 'web', filters = {}, source =
     : [cleanQuery, '--max-results', '8', '--format', 'json'];
   const results = await runSearchCommand(mode === 'images' ? imagePython : ddgs, args, mode === 'images' ? 30000 : 20000);
   if (!Array.isArray(results)) throw new Error('Search returned invalid results');
+  if (!tabs.includes(tab) || tab.navigationEpoch !== navigationEpoch) return;
   let historyId;
   try { historyId = (await searchHistory.save({ kind: 'search', source, query: cleanQuery, mode, results })).id; }
   catch (error) { console.error('Could not save search history:', error.message); }
+  if (!tabs.includes(tab) || tab.navigationEpoch !== navigationEpoch) return;
   panel = null;
-  if (tab.view) { window.contentView.removeChildView(tab.view); tab.view.webContents.close(); tab.view = null; }
-  tab.url = '';
-  tab.title = `${mode === 'images' ? 'Images' : 'Search'}: ${cleanQuery}`;
-  tab.searchResults = { query: cleanQuery, results, mode, filters: safeFilters, historyId };
-  if (id === activeId) showActive();
-  publish();
+  setSurface(tab, { kind: 'search', title: `${mode === 'images' ? 'Images' : 'Search'}: ${cleanQuery}`, searchResults: { query: cleanQuery, results, mode, filters: safeFilters, historyId } });
 }
 function submitSearch(value) {
   const query = String(value?.query || '').trim();
@@ -305,7 +362,7 @@ function closeTab(id) {
   if (index < 0) return;
   const [tab] = tabs.splice(index, 1);
   if (tab.url || tab.searchResults) { closedTabs.push({ url: tab.url, title: tab.title, searchResults: structuredClone(tab.searchResults) }); if (closedTabs.length > 20) closedTabs.shift(); }
-  if (tab.view) { window.contentView.removeChildView(tab.view); tab.view.webContents.close(); }
+  retireView(tab);
   if (activeId === id) activeId = tabs[Math.min(index, tabs.length - 1)]?.id || null;
   panel = null;
   inspection = null;
@@ -317,17 +374,17 @@ async function reopenClosedTab() {
   const saved = closedTabs.pop(); if (!saved) return;
   const id = newTab();
   if (saved.url) await navigate(saved.url, id);
-  else { const tab = tabs.find(item => item.id === id); tab.title = saved.title; tab.searchResults = saved.searchResults; showActive(); }
+  else { const tab = tabs.find(item => item.id === id); setSurface(tab, { kind: 'search', title: saved.title, searchResults: saved.searchResults }); }
   return id;
 }
 function reloadTab() {
   const tab = current();
   if (tab?.searchResults) return search(tab.searchResults.query, tab.id, tab.searchResults.mode, tab.searchResults.filters || {});
-  return tab?.view?.webContents.reload();
+  return isWebsite(tab) ? liveContents(tab.view)?.reload() : undefined;
 }
 async function screenshot() {
   const tab = current();
-  const image = await (tab?.view ? tab.view.webContents : window.webContents).capturePage();
+  const image = await (isWebsite(tab) ? liveContents(tab.view) || window.webContents : window.webContents).capturePage();
   const saved = artifactPath(undefined, 'png');
   await mkdir(path.dirname(saved), { recursive: true });
   await writeFile(saved, image.toPNG());
@@ -350,7 +407,7 @@ async function startRecording() {
     if (!recording || recording.busy || child.stdin.destroyed) return;
     recording.busy = true;
     try {
-      const image = await (tab.view ? tab.view.webContents : window.webContents).capturePage();
+      const image = await (isWebsite(tab) ? liveContents(tab.view) || window.webContents : window.webContents).capturePage();
       const png = image.resize({ width: 1280, height: 720 }).toPNG();
       child.stdin.write(png);
       recording.frames += 1;
@@ -391,9 +448,11 @@ async function openPanel(name) {
   if (recording) throw new Error('Stop recording before opening a panel');
   if (name === 'inspect') {
     const tab = current();
-    inspection = tab?.view ? {
-      tabId: tab.id, urlInfo: inspectUrl(tab.view.webContents.getURL()),
-      page: await tab.view.webContents.executeJavaScript(`(${extractPage.toString()})()`),
+    const contents = isWebsite(tab) ? liveContents(tab.view) : null;
+    const page = contents ? await contents.executeJavaScript(`(${extractPage.toString()})()`) : null;
+    inspection = page ? {
+      tabId: tab.id, urlInfo: inspectUrl(page.url || tab.url),
+      page,
       blockedRequests: tab.blocked,
     } : null;
   }
@@ -413,7 +472,7 @@ async function setAdBlock(enabled) {
 async function fillEmailProfile(nickname) {
   const profile = emailProfileByNickname(emailProfiles, nickname);
   const tab = current();
-  if (!tab?.view) throw new Error('Open a sign-in page before using an email nickname');
+  if (!isWebsite(tab) || !liveContents(tab.view)) throw new Error('Open a sign-in page before using an email nickname');
   const filled = await tab.view.webContents.executeJavaScript(`(() => {
     const email = ${JSON.stringify(profile.email)};
     const fields = [...document.querySelectorAll('input[type="email"], input[autocomplete="email"], input[autocomplete="username"], input[name*="email" i], input[id*="email" i]')];
@@ -463,21 +522,21 @@ if (hasInstanceLock) app.whenReady().then(async () => {
     ] },
     { label: 'Navigate', submenu: [
       { label: 'Address Bar', accelerator: 'CommandOrControl+L', click: () => window.webContents.send('diagonal:focus-address') },
-      { label: 'Back', accelerator: 'Alt+Left', click: goBack },
-      { label: 'Forward', accelerator: 'Alt+Right', click: goForward },
+      { label: 'Back', accelerator: 'Alt+Left', click: () => { void goBack().catch(error => console.error('Navigation:', error.message)); } },
+      { label: 'Forward', accelerator: 'Alt+Right', click: () => { void goForward().catch(error => console.error('Navigation:', error.message)); } },
       { label: 'Reload', accelerator: 'CommandOrControl+R', click: reloadTab },
       { label: 'Search History', accelerator: 'CommandOrControl+Shift+H', click: () => { void openPanel('history'); } },
       ...Array.from({ length: 9 }, (_, index) => ({ label: `Select Tab ${index + 1}`, accelerator: `CommandOrControl+${index + 1}`, click: () => { const tab = index === 8 ? tabs.at(-1) : tabs[index]; if (tab) selectTab(tab.id); } })),
     ] },
     { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   ]));
-  window.on('resize', () => { for (const tab of tabs) if (tab.id === activeId && tab.view) tab.view.setBounds(bounds()); });
+  window.on('resize', () => { for (const tab of tabs) if (tab.id === activeId && liveContents(tab.view)) tab.view.setBounds(bounds()); });
   window.on('close', event => {
     if (!recording) return;
     event.preventDefault();
     stopRecording().finally(() => window.close());
   });
-  window.on('closed', () => { ai.close(); kiraModel.dispose(); if (recording) { clearInterval(recording.timer); recording.child.stdin.end(); } for (const tab of tabs) tab.view?.webContents.close(); });
+  window.on('closed', () => { ai.close(); kiraModel.dispose(); if (recording) { clearInterval(recording.timer); recording.child.stdin.end(); } for (const tab of tabs) liveContents(tab.view)?.close(); });
   await window.loadFile(path.join(here, 'ui/index.html'));
   newTab();
   if (process.env.DIAGONAL_DESKTOP_SMOKE === '1') {
@@ -547,8 +606,7 @@ ipcMain.handle('diagonal:action', async (event, action, value) => {
     case 'search': return search(value?.query, activeId, value?.mode === 'images' ? 'images' : 'web', value?.filters || {});
     case 'home': {
       const tab = current();
-      if (tab.view) { window.contentView.removeChildView(tab.view); tab.view.webContents.close(); tab.view = null; }
-      tab.url = ''; tab.title = 'New tab'; tab.searchResults = null; panel = null; inspection = null; showActive(); return;
+      setSurface(tab, { kind: 'home', title: 'New tab' }); return;
     }
     case 'back': return goBack();
     case 'forward': return goForward();

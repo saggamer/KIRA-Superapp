@@ -17,6 +17,8 @@ async function installFixture(page) {
         window.pywebview = {api: new Proxy({}, {get: (_, name) => async (...args) => {
             window.workspaceFixtureCalls.push([name, ...args]);
             if (name === 'get_chats') return window.fixtureChats;
+            if (name === 'poll_updates') return (window.fixtureUpdates || []).splice(0);
+            if (name === 'get_browser_preview') return window.fixtureBrowserFrame || {active:true,available:false};
             if (name === 'new_chat') return {id: 'new-workspace-chat'};
             if (name === 'load_chat') return {id: args[0], messages: [
                 {role:'user', content:'Help me plan a focused release.'},
@@ -65,6 +67,36 @@ async function installFixture(page) {
         assert.equal(await page.locator('.message-user').count(),1);
         assert.equal(await page.locator('.message-assistant').count(),1);
         await page.screenshot({path:path.join(output,'workspace-conversation.png')});
+        // A running task must not drag the reader away from earlier messages.
+        await page.evaluate(() => renderAIMessage('Earlier notes.\n'.repeat(140), 'Orchestrator v1.5'));
+        await page.locator('#chat-container').evaluate(node => {node.scrollTop=0;});
+        await page.waitForFunction(() => !chatAutoFollow);
+        await page.evaluate(() => {showLoadingIndicator();renderExecutionProgress({stage:'Reading sources',label:'Comparing Python tutorials',percent:35});});
+        assert.equal(await page.locator('#chat-container').evaluate(node=>node.scrollTop),0);
+        await page.getByRole('button',{name:'Jump to latest messages'}).click();
+        assert(await page.locator('#chat-container').evaluate(node=>node.scrollHeight-node.clientHeight-node.scrollTop<96));
+        await page.evaluate(() => {fixtureUpdates=[{type:'status',chat_id:currentChatId,content:'Reading the selected page…'}];});
+        await page.evaluate(() => pollBackendUpdates());
+        assert.equal(await page.locator('#execution-progress-label').textContent(),'Reading the selected page…');
+        await page.evaluate(() => clearChat());
+        const previewPage=await browser.newPage({viewport:{width:1000,height:560}});
+        await previewPage.setContent(`<html><body style="margin:0;background:#f5f3ed;color:#263027;font:18px system-ui;padding:50px 64px"><small style="letter-spacing:2px;color:#626f5f">PYTHON FIELD NOTES · DEMO PAGE</small><h1 style="font-size:44px;letter-spacing:-2px">Your first Python program</h1><p>Start small. Run your code. See what changes.</p><pre style="background:#263027;color:#dce7c9;padding:30px;border-radius:12px;margin-top:35px">name = "World"<br>print(f"Hello, {name}!")</pre><p style="color:#6b7564">01 &nbsp; Variables &nbsp; / &nbsp; 02 &nbsp; Functions &nbsp; / &nbsp; 03 &nbsp; Small projects</p></body></html>`);
+        const frame='data:image/jpeg;base64,'+(await previewPage.screenshot({type:'jpeg',quality:70})).toString('base64');
+        await previewPage.close();
+        await page.evaluate(frame => {
+            renderUserMessage('Find a practical way to start learning Python.');
+            showLoadingIndicator();
+            fixtureBrowserFrame={active:true,available:true,title:'Your first Python program',url:'https://docs.example.test/python/first-steps',dataUrl:frame};
+            startBrowserPreview({active:true,chat_id:currentChatId,action:'Reading page'});
+            renderExecutionProgress({stage:'Reading sources',label:'Reviewing a beginner tutorial',percent:35,branches:[{label:'Find useful sources',status:'done'},{label:'Check the examples',status:'running'}]});
+        },frame);
+        await page.locator('.browser-preview-image').waitFor({state:'visible'});
+        assert.equal(await page.locator('.browser-preview-state').textContent(),'Live');
+        await page.screenshot({path:path.join(output,'workspace-browser-working.png')});
+        await page.evaluate(() => stopBrowserPreview());
+        assert.equal(await page.locator('.browser-preview-state').textContent(),'Paused');
+        await page.evaluate(() => {removeLoadingIndicator();clearChat();});
+
 
         await page.keyboard.press('Meta+k');
         assert.equal(await page.locator('#workspace-search-modal').isVisible(), true);
@@ -116,6 +148,7 @@ async function installFixture(page) {
         assert.equal(await page.locator('#slash-panel').isVisible(),true);
         await page.locator('#user-input').fill('');
 
+        await page.locator('#model-selector').selectOption('orchestrator_v15');
         for (const width of [320,390,768,900]) {
             await page.setViewportSize({width,height:844});
             await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -143,7 +176,7 @@ async function installFixture(page) {
         const shortBounds=await page.locator('#composer-wrap').boundingBox();
         assert(shortBounds.y+shortBounds.height<=600,JSON.stringify(shortBounds));
         assert.equal(errors.length,0,errors.join('\n'));
-        console.log('PASS: composer/send, suggestions, chat search/keyboard/focus trap, safe chat titles/delete, persisted sidebar, code mode, attachments, slash commands, mobile drawer and responsive layouts. Fixture backend; native model/audio behavior is not exercised.');
+        console.log('PASS: composer/send, suggestions, chat search/keyboard/focus trap, safe chat titles/delete, persisted sidebar, code mode, attachments, slash commands, scroll preservation/latest messages, live status/browser preview states, mobile drawer and responsive layouts. Fixture backend; native model/audio behavior is not exercised.');
         console.log('Screenshots: '+output);
     } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

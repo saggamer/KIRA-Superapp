@@ -33,8 +33,10 @@ class BrowserMCPClient:
         self.process = None
         self.lock = threading.Lock()
         self.serial = 0
+        self.preview_frame = None
+        self.preview_time = 0
 
-    def _send(self, method, params=None, expect=True):
+    def _send(self, method, params=None, expect=True, timeout=60):
         self.serial += 1
         request = {"jsonrpc": "2.0", "method": method, "params": params or {}}
         if expect:
@@ -43,12 +45,12 @@ class BrowserMCPClient:
         self.process.stdin.flush()
         if not expect:
             return None
-        deadline = time.monotonic() + 60
+        deadline = time.monotonic() + timeout
         invalid_lines = 0
         while True:
             ready, _, _ = select.select([self.process.stdout], [], [], max(0, deadline - time.monotonic()))
             if not ready:
-                raise TimeoutError(f"Diagonal Browser did not answer {method} within 60 seconds")
+                raise TimeoutError(f"Diagonal Browser did not answer {method} within {timeout} seconds")
             line = self.process.stdout.readline()
             if not line:
                 raise RuntimeError("Diagonal Browser MCP server exited. Run `npm ci` in diagonal_browser and check Node 20+.")
@@ -75,6 +77,8 @@ class BrowserMCPClient:
             cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, text=True, bufsize=1,
         )
+        self.preview_frame = None
+        self.preview_time = 0
         try:
             self._send("initialize", {
                 "protocolVersion": "2025-03-26",
@@ -120,6 +124,28 @@ class BrowserMCPClient:
             except json.JSONDecodeError:
                 return {"text": text}
 
+    def preview(self):
+        """Skip frames while actions own the client; never start a server here."""
+        if not self.lock.acquire(blocking=False):
+            return {"available": False, "busy": True}
+        try:
+            if not self.process or self.process.poll() is not None:
+                return {"available": False}
+            if self.preview_frame and time.monotonic() - self.preview_time < 1:
+                return self.preview_frame
+            result = self._send('tools/call', {'name': 'preview', 'arguments': {}}, timeout=3)
+            content = result.get('content', [])
+            frame = json.loads(next((item['text'] for item in content if item.get('type') == 'text'), '{}'))
+            if not isinstance(frame, dict):
+                return {"available": False}
+            if frame.get('available'):
+                self.preview_frame, self.preview_time = frame, time.monotonic()
+            return frame
+        except (OSError, ValueError, RuntimeError, TimeoutError):
+            return {"available": False, "busy": True}
+        finally:
+            self.lock.release()
+
 
 _client = BrowserMCPClient()
 atexit.register(_client.close)
@@ -127,3 +153,7 @@ atexit.register(_client.close)
 
 def call_browser_tool(name, arguments=None):
     return _client.call(name, arguments)
+
+
+def browser_preview():
+    return _client.preview()

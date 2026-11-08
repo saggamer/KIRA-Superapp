@@ -2,6 +2,17 @@
 import re
 
 
+def draft_requested(request):
+    """Creating even an inactive connector requires configuration intent."""
+    request = str(request or '')
+    if re.search(r'\b(?:do not|don\'t|never|without)\b.{0,45}'
+                 r'\b(?:create|draft|bootstrap|configure|set up)\b', request, re.I):
+        return False
+    return bool(re.search(r'\b(?:mcp|connector|filesystem bridge)\b', request, re.I)
+                and re.search(r'\b(?:create|prepare|configure|set up)\b|'
+                              r'^\s*(?:please\s+)?(?:draft|bootstrap)\b', request, re.I))
+
+
 def apply_requested(request):
     """A draft or inspection request alone does not authorize config application."""
     request = str(request or '')

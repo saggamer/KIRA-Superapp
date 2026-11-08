@@ -55,6 +55,7 @@ class StructuredThinkingTests(unittest.TestCase):
 
     def _brain(self, model_reply, tool_action=None):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _name: None
         brain._load_chat_messages = lambda _chat: []

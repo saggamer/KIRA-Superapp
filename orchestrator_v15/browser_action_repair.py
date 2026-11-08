@@ -14,7 +14,7 @@ def repair_observed_action(answer, controller):
     action = fields.get('ACTION', '').lower()
     if (action == 'act' and fields.get('OPERATION', '').lower() == 'click' and
             fields.get('TARGET_ROLE', '').lower() == 'link' and fields.get('TARGET_NAME') and
-            isinstance(latest.get('elements'), list) and not any(
+            not any(
                 item.get('role') == 'link' and
                 str(item.get('name', '')).casefold() == fields['TARGET_NAME'].casefold()
                 for item in elements)):
@@ -24,6 +24,10 @@ def repair_observed_action(answer, controller):
                 for item in observation.get('elements', []) if isinstance(item, dict)
                 and item.get('role') == 'link' and item.get('href') and
                 str(item.get('name', '')).casefold() == fields['TARGET_NAME'].casefold()}
+        state = getattr(controller, 'working_state', None)
+        if state:
+            urls.update(item['url'] for item in state.links.values()
+                        if item['title'].casefold() == fields['TARGET_NAME'].casefold())
         if len(urls) == 1:
             return '[BROWSER_TOOL]\nACTION: navigate\nURL: ' + urls.pop() + '\n[/BROWSER_TOOL]'
     if action in {'click', 'fill', 'select_option'} or (
@@ -61,6 +65,19 @@ def repair_observed_action(answer, controller):
     operation = fields.get('OPERATION', '').lower()
     if operation not in {'click', 'fill', 'select_option'}:
         return answer
+    if fields.get('INDEX') is not None and not fields.get('OBSERVATION_ID') and not fields.get('SELECTOR'):
+        try:
+            index = int(fields['INDEX'])
+        except ValueError:
+            index = -1
+        if (latest.get('observationId') and latest.get('tabId') and
+                fields.get('TABID', latest['tabId']) == latest['tabId'] and
+                any(item.get('index') == index and
+                    (not fields.get('TARGET_NAME') or str(item.get('name', '')).casefold() == fields['TARGET_NAME'].casefold()) and
+                    (not fields.get('TARGET_ROLE') or str(item.get('role', '')).casefold() == fields['TARGET_ROLE'].casefold())
+                    for item in elements)):
+            fields['OBSERVATION_ID'] = latest['observationId']
+            fields.setdefault('TABID', latest['tabId'])
     if operation == 'select_option' and fields.get('TARGET_NAME') and fields.get('VALUE'):
         controls = [item for item in elements if item.get('role') == 'combobox' and
                     str(item.get('name', '')).casefold() == fields['TARGET_NAME'].casefold()]

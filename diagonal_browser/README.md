@@ -24,6 +24,8 @@ The desktop uses a compact two-row toolbar with consistent SVG icons: navigation
 
 Keyboard shortcuts include **Cmd/Ctrl+L** for the address bar, **Cmd/Ctrl+T** for a new tab, **Cmd/Ctrl+Shift+T** to reopen a closed tab, **Cmd/Ctrl+Shift+H** for history, and **Cmd/Ctrl+1–9** to select a tab (9 selects the last). Up to 20 closed pages/searches can be reopened during the desktop session. Reduced-motion preferences disable interface animations.
 
+Back and Forward share one per-tab timeline for websites, cached search results, and Home. Website traversal uses Chromium's existing history where available, preserving page/form state. Returning to results restores the cached list without rerunning the search. A new navigation after going back clears Forward; each tab keeps up to 100 timeline entries. A closed/crashed native view is safely recreated when restoring a page. `npm run test:navigation` checks these flows and blocked requests while tabs close.
+
 Run `npm test` for browser/MCP unit and integration checks. On macOS, `npm run test:desktop` launches an isolated temporary profile and local search/page fixtures to verify the 1440px/800px layouts, native page alignment, history restoration, fresh search reload, closed-tab reopening and tool panels. Preview screenshots are written to the ignored `artifacts/` directory; the test profile is removed afterward.
 
 ## Kira AI popup

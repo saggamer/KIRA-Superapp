@@ -15,7 +15,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(process.env.DIAGONAL_ARTIFACTS_DIR || path.join(here, 'artifacts'));
 const localDdgs = path.join(os.homedir(), 'Downloads/chatgpt_antigravity_bridge/bin/ddgs');
 const ddgs = process.env.DIAGONAL_DDGS_BIN || (existsSync(localDdgs) ? localDdgs : 'ddgs');
-const chrome = process.env.DIAGONAL_CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const chrome = process.env.DIAGONAL_CHROME_BIN || (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined);
 const importPlaywright = () => import('playwright');
 const actionableSelector = 'a[href], button, input, textarea, select, [role="button"], [role="link"], [role="textbox"], [role="checkbox"], [role="radio"], [role="combobox"]';
 
@@ -152,6 +152,10 @@ export class DiagonalBrowser {
     const safeUrl = webUrl(url);
     const [id, page] = await this.page(tabId);
     const response = await page.goto(safeUrl, { waitUntil: 'domcontentloaded' });
+    // Dynamic pages often have an empty body at DOMContentLoaded. Wait once,
+    // boundedly, instead of making the model spend another turn on observe.
+    await page.waitForFunction(() => document.body?.innerText.trim().length > 0,
+      null, { timeout: 1500 }).catch(() => {});
     this.active = id;
     return { ...(await this.observe(id)), status: response?.status() ?? null };
   }
@@ -230,13 +234,16 @@ export class DiagonalBrowser {
     const [id, page] = await this.page(tabId);
     await page.waitForFunction(() => window.__diagonalShieldReady !== false, null, { timeout: 1000 }).catch(() => {});
     const viewport = page.viewportSize() || { width: 1440, height: 900 };
-    const elements = await page.locator(actionableSelector).evaluateAll((nodes, viewport) => nodes.map((node, index) => {
+    const elements = await page.locator(actionableSelector).evaluateAll((nodes, viewport) => {
+      const visible = [];
+      for (let index = 0; index < nodes.length && visible.length < 80; index++) {
+      const node = nodes[index];
       const box = node.getBoundingClientRect();
       const style = getComputedStyle(node);
-      if (!box.width || !box.height || style.visibility === 'hidden' || style.display === 'none' || box.right < 0 || box.bottom < 0 || box.left > viewport.width || box.top > viewport.height) return null;
+      if (!box.width || !box.height || style.visibility === 'hidden' || style.display === 'none' || box.right < 0 || box.bottom < 0 || box.left > viewport.width || box.top > viewport.height) continue;
       const x = Math.max(0, Math.min(viewport.width - 1, Math.round(box.left + box.width / 2)));
       const y = Math.max(0, Math.min(viewport.height - 1, Math.round(box.top + box.height / 2)));
-      return {
+      visible.push({
         index, role: node.getAttribute('role') || (node instanceof HTMLInputElement
           ? ({ checkbox: 'checkbox', radio: 'radio', button: 'button', submit: 'button' })[node.type] || 'textbox'
           : ({ A: 'link', BUTTON: 'button', TEXTAREA: 'textbox', SELECT: 'combobox' })[node.tagName] || node.tagName.toLowerCase()),
@@ -257,9 +264,11 @@ export class DiagonalBrowser {
             ? { sensitive: true, hasValue: !!node.value, valueLength: node.value.length }
             : { value: node.value.slice(0, 100) };
         })(),
-      };
-    }).filter(Boolean).slice(0, 80), viewport);
-    const bodyText = await page.locator('body').innerText().catch(() => '');
+      });
+      }
+      return visible;
+    }, viewport);
+    const bodyText = await page.locator('body').evaluate(node => node.innerText.slice(0, 25001)).catch(() => '');
     const result = {
       tabId: id, url: page.url(), title: await page.title(), viewport, grid: { columns: 12, rows: 8 },
       adblock: { active: this.adblock.enabledFor(page.url()), blocked: this.adblock.blocked },
@@ -272,8 +281,9 @@ export class DiagonalBrowser {
       const maxY = Math.max(0, root.scrollHeight - window.innerHeight);
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       const lines = [];
+      let visibleLength = 0;
       let node;
-      while ((node = walker.nextNode()) && lines.join('\n').length < 5500) {
+      while ((node = walker.nextNode()) && visibleLength < 5500) {
         const content = node.textContent?.replace(/\s+/g, ' ').trim();
         if (!content) continue;
         const parent = node.parentElement;
@@ -284,12 +294,13 @@ export class DiagonalBrowser {
         range.selectNodeContents(node);
         if ([...range.getClientRects()].some(rect => rect.width > 0 && rect.height > 0 &&
             rect.bottom > 0 && rect.top < window.innerHeight &&
-            rect.right > 0 && rect.left < window.innerWidth)) lines.push(content);
+            rect.right > 0 && rect.left < window.innerWidth)) { lines.push(content); visibleLength += content.length + 1; }
       }
       return { visibleText: lines.join('\n').slice(0, 5500),
         scroll: { y, maxY: Math.round(maxY), atTop: y <= 1, atEnd: y >= maxY - 2 } };
     });
     Object.assign(result, viewportEvidence);
+    this.previewInfo = { tabId: id, url: result.url, title: result.title };
     result.observationId = randomUUID().slice(0, 12);
     this.lastObservations.set(id, result.observationId);
     if (screenshot) {
@@ -324,6 +335,20 @@ export class DiagonalBrowser {
     return result;
   }
 
+  async preview() {
+    // Display only: never launch a browser, navigate, create observations,
+    // write history or save image files. Action grounding stays unchanged.
+    const id = this.active;
+    const page = this.pages.get(id);
+    if (!page || page.isClosed()) return { available: false };
+    const data = await page.screenshot({ type: 'jpeg', quality: 40, fullPage: false,
+      scale: 'css', timeout: 1000 });
+    if (data.length > 2_000_000) return { available: false, error: 'Preview frame is too large' };
+    return { available: true, tabId: id, url: page.url(),
+      title: this.previewInfo?.tabId === id ? this.previewInfo.title : '',
+      capturedAt: Date.now(), dataUrl: `data:image/jpeg;base64,${data.toString('base64')}` };
+  }
+
   async act({ operation, tabId, url, role, targetName, selector, index, text, value, key, pixels, x, y, observationId } = {}) {
     if (!operation) throw new Error('An operation is required');
     if (operation === 'navigate') return this.navigate(url, tabId);
@@ -349,8 +374,7 @@ export class DiagonalBrowser {
         this.active = id;
         const viewport = page.viewportSize();
         if (x < 0 || y < 0 || x >= viewport.width || y >= viewport.height) throw new Error('Click coordinates must be inside the viewport');
-        await page.mouse.click(x, y);
-        return this.observe(this.active);
+        return this._clickAndObserve(id, page, () => page.mouse.click(x, y));
       }
       return this.click(selector, index, text, tabId, role, targetName);
     }
@@ -450,7 +474,18 @@ export class DiagonalBrowser {
   async click(selector, index, text, tabId, role, targetName) {
     const [id, page] = await this.page(tabId);
     this.active = id;
-    await this._target(page, selector, index, text, role, targetName).click();
+    return this._clickAndObserve(id, page, () => this._target(page, selector, index, text, role, targetName).click());
+  }
+
+  async _clickAndObserve(id, page, click) {
+    // Popup events can arrive after the click promise resolves on Linux Chromium.
+    const pendingPopup = page.waitForEvent('popup', { timeout: 750 }).catch(() => null);
+    await click();
+    const popup = await pendingPopup;
+    if (popup && !popup.isClosed()) {
+      this.active = this._trackPage(popup);
+      await popup.waitForLoadState('domcontentloaded');
+    }
     if (page.isClosed()) return { tabId: id, closed: true, activeTabId: this.active };
     return this.observe(this.active);
   }

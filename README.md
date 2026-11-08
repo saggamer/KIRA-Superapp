@@ -1,5 +1,9 @@
 # KIRA Superapp
 
+Linux preview: see [Linux installation and feature support](docs/LINUX.md).
+It includes the current Diagonal Browser UI, shared history and Ghostery ad blocker,
+and uses a configured OpenAI-compatible model server instead of Apple MLX.
+
 KIRA Superapp is a local macOS agent runtime built around
 [Orchestrator V1](https://huggingface.co/saggamer/Orchestrator_V1). It combines chat,
 tool routing, web research, document and slide generation, coding workflows, local
@@ -11,7 +15,7 @@ permission gates.
 - macOS on Apple Silicon (M1 or newer)
 - Python 3.11 or 3.12
 - At least 16 GB unified memory; 24 GB is recommended
-- Approximately 12 GB of free disk space for the environment and models
+- At least 20 GB of free disk space for the standard models and environments; allow more for Live
 - Internet access for first-time installation
 
 The current model runtime uses MLX and therefore does not support Intel Macs.
@@ -27,10 +31,11 @@ zsh DOWNLOAD_ALL.command
 
 This installs the Python, native Live, voice, and Diagonal Browser dependencies,
 then downloads Orchestrator V1, MLX Whisper, the revision-pinned Live Listener,
-Thinker and Talker, published Live add-ons, Qwen ASR, portable Whisper, and Kokoro
+Thinker and Talker, published Live add-ons, Horizon 1 MLX and its pinned 4-bit base,
+Qwen ASR, portable Whisper, and Kokoro
 model/voice assets. Existing local Live add-ons are preserved. Downloads can be
 retried; complete cached model files are reused. Allow substantially more disk
-space than the 12 GB basic install; the Live donors alone contain several GB of weights.
+space than the 20 GB standard install; the Live donors alone contain several GB of weights.
 Python 3.11/3.12, Node.js 20+ (with npm), and Git must already be installed.
 Diagonal Browser also needs Google Chrome or `DIAGONAL_CHROME_BIN`.
 
@@ -44,7 +49,7 @@ The legacy `qwen-asr` Python backend requires Transformers 4 and is excluded fro
 the native Live environment, which uses Transformers 5. Live uses `mlx-audio`;
 ordinary speech input uses the installed Whisper backends.
 
-For the smaller Orchestrator V1 and Whisper installation:
+For the standard Orchestrator V1, Whisper, and Horizon 1 installation:
 
 Clone the repository and run the installer:
 
@@ -56,10 +61,20 @@ chmod +x INSTALL_MACOS.command DOWNLOAD_MODELS.command superapp
 ```
 
 The installer creates `~/.local/share/kira-superapp/runtime`, installs dependencies, downloads Orchestrator V1
-into `models/orchestrator_v1_fused`, downloads the Apple-optimized Whisper model,
-and verifies model discovery.
+into `models/orchestrator_v1_fused`, downloads Whisper and Horizon 1 with its separate
+4-bit base, and verifies model discovery. Horizon uses its own `.venv-horizon-mlx`
+environment to keep its image dependencies separate from chat and voice.
 
-Launch KIRA:
+On macOS, double-click **Kira Superapp.app** in the project folder to launch
+without a Terminal window. **Diagonal Browser.app** opens the standalone browser.
+You can drag either app into the Dock or copy it into Applications; keep this
+project folder and its installed runtimes in place. The launchers use the existing
+Python environment and Electron installation. Logs are saved under
+`~/Library/Logs/KiraLaunchers/`; startup failures display a native dialog.
+To rebuild these local apps after moving the project, run
+`python3 scripts/build_macos_launchers.py` (requires Xcode command line tools).
+
+Alternatively, launch KIRA from a terminal:
 
 ```bash
 ./superapp
@@ -90,12 +105,14 @@ Download only one model:
 ```bash
 ./DOWNLOAD_MODELS.command --orchestrator-only
 ./DOWNLOAD_MODELS.command --whisper-only
+./DOWNLOAD_MODELS.command --horizon-only
 ```
 
 The defaults are:
 
 - `saggamer/Orchestrator_V1`
 - `mlx-community/whisper-small.en-mlx`
+- `saggamer/horizon-1` and its separate 4-bit base (`--all` or `--horizon-only`)
 
 Override them with `KIRA_ORCHESTRATOR_REPO` or `KIRA_WHISPER_REPO`. If Hugging
 Face requires authentication or license acceptance, run `~/.local/share/kira-superapp/runtime/bin/hf auth login`
@@ -143,6 +160,11 @@ Orchestrator v1.5 includes automatic browser research, page interaction, saved
 history and MCP workflow skills. See [Orchestrator skills](docs/ORCHESTRATOR_V15_SKILLS.md)
 for explicit invocation, loading limits, audit metadata and the skills-off comparison.
 
+For concurrent model drafting and approved-document retrieval, with citations
+and refusal when evidence is missing, see [Parallel evidence RAG](docs/EVIDENCE_RAG.md). Use `/rag <question>`
+in chat, or launch with `KIRA_STRICT_RAG=1 ./superapp` to require source excerpts
+for all typed chat answers. Import your reviewed sources before querying.
+
 For interactive web research, screenshots, and browser recordings, see [Diagonal Browser](diagonal_browser/README.md). It adds a persistent Playwright MCP service and a Kira `[BROWSER_TOOL]` action backed by the Antigravity bridge's DDG search utility.
 
 Run the focused regression suite:
@@ -178,3 +200,12 @@ DeepSeek harness integrations and their upstream licenses.
 Orchestrator V1 is downloaded separately from Hugging Face. Review its model card
 and applicable Gemma terms before use. Third-party harness components retain their
 upstream license files. KIRA Superapp source is provided under the Apache License 2.0.
+
+Horizon 1's experimental Apple Silicon image generator and editor is available at
+[saggamer/horizon-1](https://huggingface.co/saggamer/horizon-1).
+See [Horizon 1 MLX](docs/HORIZON1_MLX.md) for the local runtime, validation,
+and current instruction-adherence limitations.
+
+With **Horizon 1** selected, describe an image to generate it from text, or attach
+one source photo to edit it. Generation uses Horizon's trained creativity expert;
+editing uses its separate editing/grounding expert. Both remain experimental.

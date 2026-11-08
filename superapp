@@ -1,7 +1,10 @@
-#!/bin/zsh
+#!/usr/bin/env bash
+if [ -n "${ZSH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
 set -u
 
-SCRIPT_PATH="${0:A}"
+SCRIPT_PATH="${BASH_SOURCE[0]}"
 APP_DIR="${KIRA_SUPERAPP_HOME:-$(cd "$(dirname "$SCRIPT_PATH")" && pwd)}"
 cd "$APP_DIR" || exit 1
 source "$APP_DIR/scripts/kira_runtime.sh"

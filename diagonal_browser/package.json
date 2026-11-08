@@ -10,7 +10,8 @@
     "mcp-config": "node print_mcp_config.mjs",
     "setup": "playwright install ffmpeg",
     "test": "node --test test/*.test.mjs",
-    "test:desktop": "node test/desktop_ui_smoke.mjs"
+    "test:desktop": "node test/desktop_ui_smoke.mjs",
+    "test:navigation": "node test/desktop_navigation_smoke.mjs"
   },
   "dependencies": {
     "@ghostery/adblocker": "2.20.1",

@@ -8,6 +8,10 @@ const browser = new DiagonalBrowser({ persistAuth: true });
 const server = new McpServer({ name: 'kira-diagonal-browser', version: '0.1.0' });
 const tabId = z.string().optional().describe('Tab ID returned by navigate or list_tabs; omitted means active tab');
 const textResult = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }] });
+server.registerTool('preview', { description: 'Read-only viewport frame for Kira’s live display; does not create model observations.', inputSchema: z.object({}) }, async () => {
+  try { return textResult(await browser.preview()); }
+  catch (_) { return textResult({ available: false, busy: true }); }
+});
 
 function tool(name, description, inputSchema, fn) {
   server.registerTool(name, { description, inputSchema }, async args => {

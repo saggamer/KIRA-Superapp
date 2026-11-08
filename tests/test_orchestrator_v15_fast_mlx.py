@@ -12,7 +12,7 @@ class FastMlxTests(unittest.TestCase):
         self.assertEqual(browser_step_budget(request, []),
                          {'branches': 1, 'max_tokens': 160, 'structured_thinking': False})
         self.assertEqual(browser_step_budget(request, [{'results': []}]),
-                         {'branches': 2, 'max_tokens': 192, 'structured_thinking': False})
+                         {'branches': 1, 'max_tokens': 192, 'structured_thinking': False})
         self.assertIsNone(browser_step_budget('Click the observed button.', []))
         self.assertEqual(browser_step_budget(
             'Find a movie and show an image for me to see and choose.', []),

@@ -74,6 +74,7 @@ class KiraPPTCandidateTests(unittest.TestCase):
 
     def test_kira_profile_executes_verified_deck(self):
         brain = KiraBrain.__new__(KiraBrain)
+        brain.v15_model_tool_planning = False  # This fixture tests execution after tool selection.
         brain.response_queue = queue.Queue()
         brain._evict_and_load = lambda _model: None
         brain._load_chat_messages = lambda _chat_id: []

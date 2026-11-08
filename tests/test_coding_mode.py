@@ -14,6 +14,7 @@ from coding import KiraCodingMixin
 class CodingHarness(KiraCodingMixin):
     def __init__(self, root):
         self.test_root = os.path.realpath(root)
+        self.app_root = self.test_root
         self.architect_workspace = os.path.join(root, "architect")
         self.response_queue = queue.Queue()
         self.pending_permissions = {}

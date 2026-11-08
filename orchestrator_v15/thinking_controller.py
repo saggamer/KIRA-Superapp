@@ -10,11 +10,38 @@ from decimal import Decimal
 from orchestrator_v15.contracts import parse_block
 from orchestrator_v15.graph import EvidenceGraph, Limits
 from orchestrator_v15.adapter_router import BROWSER_HISTORY
+from orchestrator_v15.browser_state import BrowserWorkingState, normalize_observation
 
 EFFECT_TARGET = re.compile(r'\b(?:purchase|pay|send|submit|place order|confirm booking|book now|subscribe)\b', re.I)
 
 
 class ThinkingController:
+    def repeated_unchanged_reads(self):
+        if len(self.observations) < 3 or self.effect_pending:
+            return False
+        indices = range(len(self.observations) - 2, len(self.observations))
+        if any(self.actions[i] not in {'observe', 'snapshot'} for i in indices):
+            return False
+        def state(item):
+            return {key: item.get(key) for key in ('tabId', 'url', 'title', 'text', 'visibleText', 'elements', 'scroll', 'status', 'error')}
+        # Observation IDs and timestamps change even when the page does not.
+        return state(self.observations[-1]) == state(self.observations[-2])
+
+    def limit_summary(self, reason):
+        pages = {}
+        for item in self.observations:
+            url = str(item.get('url') or '')
+            if url.startswith(('https://', 'http://')):
+                title = re.sub(r'[\[\]\r\n]', '', str(item.get('title') or url))[:160]
+                pages[url] = title
+        lines = [reason, 'I could not verify completion of the full request.']
+        if pages:
+            lines.append('\nPages reached:')
+            lines.extend(f'- {title}: {url}' for url, title in list(pages.items())[-3:])
+        if self.observations and not (self.observations[-1].get('text') or self.observations[-1].get('visibleText')):
+            lines.append('\nThe latest page returned no readable content. Opening a page does not confirm video playback or its contents.')
+        return '\n'.join(lines)
+
     @staticmethod
     def authorizes_final_effect(request):
         """Recognize an explicit user instruction, excluding questions and deferrals."""
@@ -31,13 +58,14 @@ class ThinkingController:
             r'place (?:the |my |an? )?order|complete (?:the |my )?checkout)\b',
             request, re.I))
 
-    def __init__(self, request, diagonal_level=False, effort=None):
+    def __init__(self, request, diagonal_level=False, effort=None, unlimited_steps=False):
         self.request = request
         self.diagonal_level = diagonal_level
         self.effort = effort
+        self.unlimited_steps = unlimited_steps
         self.graph = EvidenceGraph(
             Limits(nodes=6, concurrent=3, depth=2,
-                   tool_calls=effort.tool_calls if effort else 16,
+                   tool_calls=None if unlimited_steps else effort.tool_calls if effort else 16,
                    replans=effort.replans if effort else 4,
                    tokens=effort.total_tokens if effort else 8192,
                    seconds=effort.seconds if effort else 900)
@@ -47,6 +75,7 @@ class ThinkingController:
         self.graph.verify('intent', {'request': request}, lambda e: bool(e['request']))
         self.actions = []
         self.action_fields = {}
+        self.working_state = BrowserWorkingState(request)
         self.observations = []
         self.screenshot_observed = False
         self.fresh_observation = False
@@ -142,6 +171,11 @@ class ThinkingController:
         if tag != 'BROWSER_TOOL':
             return 'Use only the available BROWSER_TOOL contract for this browser task.'
         action = fields.get('ACTION', '').lower()
+        if (action in {'observe', 'snapshot'} and self.repeated_unchanged_reads()
+                and not self.effect_pending and fields.get('SCREENSHOT', '').lower() != 'true'):
+            return ('Repeated reads returned the same page. Choose inspect_page for structure, '
+                    'navigate to a relevant observed alternative, refine the search, or report the specific blocker. '
+                    'Do not spend another action observing the same unchanged state.')
         if action not in {'search', 'navigate', 'new_tab', 'observe', 'act', 'snapshot', 'scroll',
                           'inspect_page', 'back', 'select_tab', 'list_tabs', 'reload',
                           'search_history', 'read_history', 'revisit_history',
@@ -158,7 +192,7 @@ class ThinkingController:
         successful_searches = sum(
             1 for name, observation in zip(self.actions, self.observations)
             if name == 'search' and observation.get('results'))
-        if action == 'search' and successful_searches >= 2:
+        if action == 'search' and successful_searches >= 2 and not self.unlimited_steps:
             return ('Two searches already returned results. Navigate to a relevant observed URL, '
                     'capture the requested image if needed, or answer from the evidence.')
         if action == 'navigate' and not fields.get('URL'):
@@ -198,6 +232,7 @@ class ThinkingController:
             for link in observation.get(collection, [])
             if isinstance(link, dict)
         }
+        observed_links.update(self.working_state.links)
         if (action == 'navigate' and self.requested_urls and
                 fields.get('URL') not in self.requested_urls and
                 fields.get('URL') not in observed_links):
@@ -230,7 +265,7 @@ class ThinkingController:
                           (item.get('ACTION', '').lower() == 'act' and
                            item.get('OPERATION', '').lower() == 'scroll')
                           for item in self.action_fields.values())
-            if scrolls >= 8:
+            if scrolls >= 8 and not self.unlimited_steps:
                 return 'The bounded scroll limit was reached. Answer from observed content and state what remains unseen.'
         if action == 'act':
             operation = fields.get('OPERATION', '').lower()
@@ -688,7 +723,11 @@ class ThinkingController:
             evidence = json.loads(payload)
         except json.JSONDecodeError:
             evidence = {'raw': payload[:300]}
+        evidence = normalize_observation(evidence)
+        if 'BROWSER_TOOL ERROR:' in result and not evidence.get('error'):
+            evidence['error'] = str(evidence.get('raw') or payload)[:500]
         self.observations.append(evidence)
+        self.working_state.record(fields, evidence)
         if action == 'act' and fields.get('OPERATION', '').lower() == 'click' and EFFECT_TARGET.search(fields.get('TARGET_NAME', '')):
             self.effect_pending = True
             self.effect_executed = True
@@ -716,7 +755,14 @@ class ThinkingController:
                     '[BROWSER_TOOL] ACTION: search, QUERY: the topic; to open a browser use ACTION: new_tab. '
                     'Return one closed action block.')
         latest = self.observations[-1]
-        parts = [f'Execution ledger: {self.graph.calls}/{self.graph.limits.tool_calls} tool calls.']
+        call_limit = self.graph.limits.tool_calls
+        parts = [f'Execution ledger: {self.graph.calls} tool calls; no fixed step cap.' if call_limit is None
+                 else f'Execution ledger: {self.graph.calls}/{call_limit} tool calls.']
+        recovery = self.working_state.recovery_hint()
+        if recovery:
+            parts.append(recovery)
+        if self.repeated_unchanged_reads() and not self.effect_pending:
+            parts.append('No new page evidence appeared after repeated reads. Choose a different source or inspect_page; do not observe the same state again.')
         if latest.get('observationId'):
             parts.append(f"Latest observation ID: {latest['observationId']}.")
         if self.needs_stale_recovery and not self.fresh_observation:

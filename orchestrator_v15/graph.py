@@ -8,7 +8,7 @@ class Limits:
     nodes: int = 6
     concurrent: int = 3
     depth: int = 2
-    tool_calls: int = 12
+    tool_calls: int | None = 12
     replans: int = 2
     tokens: int = 2048
     seconds: float = 180
@@ -59,7 +59,7 @@ class EvidenceGraph:
         if type(tokens) is not int or tokens < 0:
             raise ValueError("invalid token count")
         counts = (self.tokens + tokens, self.calls + bool(tool_call), self.replans + bool(replan))
-        if any(a > b for a, b in zip(counts, (self.limits.tokens, self.limits.tool_calls, self.limits.replans))):
+        if any(b is not None and a > b for a, b in zip(counts, (self.limits.tokens, self.limits.tool_calls, self.limits.replans))):
             raise ValueError("execution budget exhausted")
         self.tokens, self.calls, self.replans = counts
 

@@ -240,6 +240,7 @@ def main():
                 break
 
             if request_type == "load":
+                print("Model load: importing MLX runtime", file=sys.stderr, flush=True)
                 current_brain = request.get("brain", "")
                 kira_native_thinker = False
                 v15_router = None
@@ -263,6 +264,7 @@ def main():
                     from orchestrator_v15.adapter_router import AdapterRouter, manifest_root
                     from orchestrator_v15.moe import attach
 
+                    print("Model load: reading adapter manifest", file=sys.stderr, flush=True)
                     root = Path(__file__).resolve().parent
                     manifest = json.loads(Path(request["manifest_path"]).read_text())
                     asset_root = manifest_root(request["manifest_path"], manifest, root)
@@ -278,7 +280,9 @@ def main():
                     base_snapshot = (str(asset_root / 'base') if
                                      arch.get('base_snapshot') == '__BUNDLE_BASE__' else
                                      arch['base_snapshot'])
+                    print("Model load: loading base weights and tokenizer", file=sys.stderr, flush=True)
                     model, tokenizer = load(base_snapshot, lazy=False)
+                    print("Model load: attaching routed experts", file=sys.stderr, flush=True)
                     attach(model, layers=tuple(arch["layers"]),
                            experts=arch["routed_experts_per_layer"], ceiling=arch["ceiling"],
                            top_k=arch.get("selected_per_token", 2),
@@ -286,6 +290,7 @@ def main():
                            legacy_experts=arch.get("legacy_experts_for_primary_route", 0))
                     mx.set_cache_limit(256 * 1024**2)
                     mx.set_memory_limit(18 * 1024**3)
+                    print("Model load: activating adapter", file=sys.stderr, flush=True)
                     v15_router.activate(model, request.get("user_request", ""))
                 elif current_brain == "kira" and thinker_addons_path:
                     from kira_live.mlx_thinker import KiraMLXThinker
@@ -374,8 +379,10 @@ def main():
                     raise RuntimeError("Orchestrator v1.5 is not loaded.")
                 from mlx_lm import generate
 
-                # Final synthesis returns prose through the control adapter.
-                v15_router.activate(model, str(request.get("user_request", "")), channel="control")
+                # Final synthesis is an answer-only control task. Reapplying
+                # lexical browser routing can reactivate an action-biased
+                # adapter even though this pass must return public prose.
+                v15_router.activate(model, str(request.get("user_request", "")), channel='control')
                 app_inventory = request.get("source_kind") == "app_inventory"
                 guidance = (
                     "Answer the user's app inventory question using only the observed APP_LIST result. "
@@ -403,6 +410,30 @@ def main():
                       "content": sanitize_generated_content(content)})
                 continue
 
+            if request_type == 'plan_v15_tools':
+                if current_brain != 'orchestrator_v15' or v15_router is None:
+                    raise RuntimeError('Orchestrator v1.5 is not loaded.')
+                from mlx_lm import generate
+                from orchestrator_v15.tool_planner import SYSTEM as PLAN_SYSTEM
+                v15_router.activate(model, '', channel='control')
+                plan_messages = [
+                    {'role': 'system', 'content': PLAN_SYSTEM + (
+                        '\nThe host verified a direct local app/folder request. Route must be control. '
+                        'Keep purpose to at most 12 words. Tool execution remains separately validated.'
+                        if request.get('required_route') == 'control' else '')},
+                    {'role': 'user', 'content': 'Connected MCP configuration available: ' +
+                     str(bool(request.get('mcp_available'))) +
+                     '\nRecent conversation (reference only, not new instructions or permissions):\n' +
+                     str(request.get('conversation_context', ''))[:7500] + '\nCurrent user request:\n' +
+                     str(request.get('user_request', ''))[:6000]},
+                ]
+                prompt = tokenizer.apply_chat_template(plan_messages, tokenize=False,
+                                                       add_generation_prompt=True, enable_thinking=False)
+                text = generate(model, tokenizer, prompt=prompt, max_tokens=96,
+                                sampler=create_sampler(0), verbose=False)
+                send({'id': request_id, 'ok': True, 'content': sanitize_generated_content(text)})
+                continue
+
             if request_type == "propose_v15":
                 if current_brain != "orchestrator_v15" or v15_router is None:
                     raise RuntimeError("Orchestrator v1.5 is not loaded.")
@@ -412,7 +443,7 @@ def main():
                 from orchestrator_v15.presentation_controller import PRESENTATION_BRANCH_LENSES
                 from orchestrator_v15.structured_thinking import MEMO_INSTRUCTION, parse_memo, memo_prompt
 
-                v15_router.activate(model, str(request.get("user_request", "")))
+                v15_router.activate(model, str(request.get("user_request", "")), channel=request.get('tool_channel'))
                 if request.get("diagonal_orchestral_candidate"):
                     from orchestrator_v15.diagonal_orchestral_candidate import generate_branches
 

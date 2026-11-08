@@ -991,6 +991,7 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         from orchestrator_v15.screenshot_answer import with_screenshot
         from orchestrator_v15.thinking_controller import ThinkingController
         from orchestrator_v15.skill_runtime import skill_context
+        from orchestrator_v15.output_guard import output_issue, browser_progress_summary
 
         budget = LEVELS[effort_name]
         document_kind = document_kind_for_request(request) if ppt_candidate else None
@@ -1072,6 +1073,8 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         for item in prior_messages[-6:]:
             role = item.get("role")
             if role in {"user", "assistant"}:
+                if role == "assistant" and output_issue(item.get("content", ""), allow_tools=False):
+                    continue
                 messages.append({"role": role, "content": self._truncate(str(item.get("content", "")), 1800)})
         memory_context = self._smart_memory_context(request, chat_id, max_chars=1200)
         if memory_context:
@@ -1121,6 +1124,8 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
         last_result = ""
         generated_tokens = 0
         invalid_control_retries = 0
+        empty_output_retries = 0
+        recovering_empty_output = False
         if orchestral_candidate and controller.requested_urls:
             # The user already supplied the destination. Navigation is a
             # read-only, deterministic first step; spend model branches on
@@ -1349,8 +1354,11 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                             if browser_task and not candidate_step else None)
             if fast_browser:
                 proposal_count = fast_browser['branches']
+            if recovering_empty_output:
+                proposal_count = 1
+                candidate_step = False
             remaining_tokens = budget.total_tokens - generated_tokens
-            memo_reserve = 128 if structured_thinking and not orchestral_candidate else 0
+            memo_reserve = 128 if structured_thinking and not orchestral_candidate and not recovering_empty_output else 0
             if remaining_tokens < memo_reserve + 32 * proposal_count:
                 return "Orchestrator v1.5 reached its generated-token limit. " + (last_result or "No action was verified.")
             response = self._model_worker_request({
@@ -1360,13 +1368,28 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                 "diagonal_orchestral_candidate": candidate_step,
                 "presentation_task": artifact_task,
                 "structured_thinking": (structured_thinking and
-                                        not orchestral_candidate),
-                "max_tokens": min(fast_browser['max_tokens'] if fast_browser else
+                                        not orchestral_candidate and not recovering_empty_output),
+                "max_tokens": min(max(512, budget.max_tokens) if recovering_empty_output else
+                                  fast_browser['max_tokens'] if fast_browser else
                                   320 if candidate_step else
                                   512 if deck_research else (1700 if artifact_task else budget.max_tokens),
                                   (remaining_tokens - memo_reserve) // proposal_count),
             }, timeout=min(120, max(20, int(deadline - time.monotonic()))))
-            proposals = [str(item).strip() for item in response.get("proposals", [])]
+            from kira_live.privacy import sanitize_public_output
+            proposals = []
+            output_issues = []
+            for item in response.get("proposals", []):
+                public = sanitize_public_output(item)
+                issue = output_issue(public)
+                if issue:
+                    output_issues.append(issue)
+                    continue
+                # Apply the same public-answer boundary before accepting a
+                # final, so later UI cleanup cannot turn success into blank.
+                if public and action_tag(public)[0] is None:
+                    public = self._polish_final_answer(self._strip_private_reasoning(public)).strip()
+                if public:
+                    proposals.append(public)
             if ppt_candidate and deck_controller:
                 proposals = [deck_controller.normalize(item) for item in proposals]
             generated_tokens += int(response.get("memo_tokens", 0))
@@ -1379,8 +1402,53 @@ class KiraBrain(KiraCodingMixin, KiraActionsMixin, KiraVoiceMixin):
                     "proposals": len(proposals),
                 })
             if not proposals:
-                return "Orchestrator v1.5 returned no action or answer."
-            candidate_result = response.get('candidate') if candidate_step else None
+                empty_output_retries += 1
+                self._log_agentic_event('v15_empty_output_recovery', {
+                    'chat_id': chat_id, 'attempt': empty_output_retries,
+                    'reasons': sorted(set(output_issues)) or ['empty'],
+                    'browser_observations': len(controller.observations) if controller else 0})
+                self.response_queue.put({'type': 'status', 'chat_id': chat_id,
+                    'content': 'Recovering the response and continuing from the verified results…'})
+                if empty_output_retries <= 2:
+                    recovering_empty_output = True
+                    continuation = (
+                        'Your last generation was empty or contained malformed/repetitive tool syntax. '
+                        'Do not repeat that output or invent tool names. Continue the same user task '
+                        'from the observed evidence below. Do not repeat successful navigation or actions. '
+                        'Return one valid next action if work remains, or a substantive public answer '
+                        'with the supported facts and source URLs. Output no private reasoning.\n')
+                    if controller:
+                        messages = initial_messages + [{'role': 'user', 'content': continuation +
+                            browser_evidence_snapshot(controller) + '\n' + controller.hint()}]
+                    else:
+                        messages.append({'role': 'user', 'content': continuation + last_result})
+                    continue
+                if controller and controller.observations:
+                    # A separate answer-only pass is a final recovery, not
+                    # permission to execute another action or invent success.
+                    if deadline - time.monotonic() >= 5 and budget.total_tokens - generated_tokens >= 64:
+                        try:
+                            finished = self._model_worker_request({
+                                'type': 'finish_v15', 'user_request': request,
+                                'evidence': browser_evidence_snapshot(controller),
+                                'max_tokens': min(384, budget.total_tokens - generated_tokens),
+                            }, timeout=min(60, max(1, int(deadline - time.monotonic()))))
+                            final_text = self._polish_final_answer(self._strip_private_reasoning(
+                                sanitize_public_output(finished))).strip()
+                            if (final_text and not output_issue(final_text, allow_tools=False)
+                                    and action_tag(final_text)[0] is None
+                                    and not re.search(r'\[[A-Z_]+\]', final_text)
+                                    and not controller.preflight(final_text)):
+                                return final_text
+                        except (RuntimeError, ValueError, TypeError):
+                            pass
+                    return browser_progress_summary(controller,
+                        'The model could not produce a public response after automatic retries. The browser evidence is preserved below.')
+                return ('The model returned no public response after automatic retries. '
+                        'No additional action was executed during those retries.')
+            recovering_empty_output = False
+            empty_output_retries = 0
+            candidate_result = response.get('candidate') if candidate_step and not output_issues else None
             if candidate_result:
                 selected, candidate_audit = select_branch(candidate_result, controller)
                 self._log_agentic_event('v15_orchestral_candidate', {

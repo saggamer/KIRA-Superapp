@@ -4,6 +4,7 @@ This wraps the installed mlx-lm runtime; it does not modify MLX itself.
 """
 import re
 import json
+from orchestrator_v15.output_guard import repeated_protocol
 
 
 ACTION_START = re.compile(r'^\s*\[([A-Z_]+)\]\s*\n')
@@ -21,6 +22,8 @@ def generate_closed_proposal(model, tokenizer, prompt, *, max_tokens, sampler,
         for response in stream:
             pieces.append(response.text)
             text = ''.join(pieces)
+            if repeated_protocol(text[-2048:]):
+                break
             match = ACTION_START.match(text)
             if match and text.rstrip().endswith(f'[/{match.group(1)}]'):
                 break

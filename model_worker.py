@@ -374,7 +374,8 @@ def main():
                     raise RuntimeError("Orchestrator v1.5 is not loaded.")
                 from mlx_lm import generate
 
-                v15_router.activate(model, str(request.get("user_request", "")))
+                # Final synthesis returns prose through the control adapter.
+                v15_router.activate(model, str(request.get("user_request", "")), channel="control")
                 app_inventory = request.get("source_kind") == "app_inventory"
                 guidance = (
                     "Answer the user's app inventory question using only the observed APP_LIST result. "

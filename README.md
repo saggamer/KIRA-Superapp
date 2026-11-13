@@ -1,7 +1,7 @@
 # KIRA Superapp
 
 KIRA Superapp is a local macOS agent runtime built around
-[Orchestrator V1](https://huggingface.co/saggamer/Orchestrator_V1). It combines chat,
+[Orchestrator V1.5](https://huggingface.co/saggamer/orchestrator-v1.5). It combines chat,
 tool routing, web research, document and slide generation, coding workflows, local
 speech-to-text, scheduling, plugins, and MCP connector management behind explicit
 permission gates.
